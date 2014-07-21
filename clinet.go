@@ -91,8 +91,6 @@ func handleConnection(conn net.Conn) {
 	ansmsg.print()
 
 	pipe(pconn, conn)
-
-	return
 }
 
 func encode(data interface{}) ([]byte, error) {
@@ -225,12 +223,7 @@ func (msg *ReqMsg) read(conn net.Conn) (err error) {
 	if err != nil {
 		return
 	}
-	//bbuf := bytes.NewBuffer(msg.Dst_port[:])
-	//err = binary.Read(bbuf, binary.BigEndian, msg.Dst_port2)
-	//if err != nil {
-	// log.Println(err)
-	// return
-	//}
+
 	msg.dst_port2 = (uint16(msg.dst_port[0]) << 8) + uint16(msg.dst_port[1])
 
 	switch msg.cmd {
@@ -252,7 +245,6 @@ func (msg *ReqMsg) read(conn net.Conn) (err error) {
 	}
 	return
 }
-
 func (msg *ReqMsg) print() {
 	log.Println("---***-----****----***---")
 	log.Println("get reqmsg:")
@@ -265,8 +257,6 @@ type ansMsg struct {
 	rep  uint8
 	rsv  uint8
 	atyp uint8
-	//bnd_addr [255]uint8
-	//bnd_port [2]uint8
 	buf  [300]uint8
 	mlen uint16
 }
@@ -282,12 +272,6 @@ func (msg *ansMsg) gen(req *ReqMsg, rep uint8) {
 		msg.buf[i] = 0
 	}
 	msg.mlen = 10
-	//i := 4
-	//for ; i+4 <= int(req.dst_addr[0]); i++ {
-	// msg.buf[i] = req.dst_addr[i-4]
-	//}
-	//msg.buf[i], msg.buf[i+1] = req.dst_port[0], req.dst_port[1]
-	//msg.mlen = uint16(i + 2)
 }
 func (msg *ansMsg) write(conn net.Conn) {
 	conn.Write(msg.buf[:msg.mlen])

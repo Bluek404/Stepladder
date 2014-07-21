@@ -58,7 +58,7 @@ func handleConnection(conn net.Conn) {
 		return
 	}
 
-	log.Println(reqmsg.Reqtype,reqmsg.Url)
+	log.Println(reqmsg.Reqtype, reqmsg.Url)
 
 	//connect
 	var pconn net.Conn
@@ -74,9 +74,9 @@ func decode(data []byte, to interface{}) error {
 	return dec.Decode(to)
 }
 
-type ReqMsg struct {
-	Reqtype string
-	Url     string
+func pipe(a net.Conn, b net.Conn) {
+	go resend(a, b)
+	go resend(b, a)
 }
 
 func resend(in net.Conn, out net.Conn) {
@@ -94,7 +94,7 @@ func resend(in net.Conn, out net.Conn) {
 	}
 }
 
-func pipe(a net.Conn, b net.Conn) {
-	go resend(a, b)
-	go resend(b, a)
+type ReqMsg struct {
+	Reqtype string
+	Url     string
 }
