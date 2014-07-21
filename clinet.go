@@ -39,9 +39,11 @@ func handleConnection(conn net.Conn) {
 	)
 
 	//recv hello
-	var err error = nil
+	var err error
 	err = reqhello.read(conn)
 	if err != nil {
+		log.Println(err)
+		conn.Close()
 		return
 	}
 	reqhello.print()
@@ -54,6 +56,8 @@ func handleConnection(conn net.Conn) {
 	//recv request
 	err = reqmsg.read(conn)
 	if err != nil {
+		log.Println(err)
+		conn.Close()
 		return
 	}
 	reqmsg.print()
@@ -62,31 +66,26 @@ func handleConnection(conn net.Conn) {
 		InsecureSkipVerify: true,
 	}
 
-	pconn, err := tls.Dial("tcp", "162.243.159.123:8081", conf)
+	pconn, err := tls.Dial("tcp", "127.0.0.1:8081", conf)
 	if err != nil {
 		log.Println(err)
+		conn.Close()
 		return
 	}
 
 	//编码
-	byt, err := encode(&reqmsg)
+	enc, err := encode(&reqmsg)
 
-	n, err := pconn.Write(byt)
+	_, err = pconn.Write(enc)
 	if err != nil {
-		log.Println(n, err)
+		log.Println(err)
+		conn.Close()
+		pconn.Close()
 		return
 	}
 
-	//reply
-	//error occur
-	if err != nil {
-		ansmsg.gen(&reqmsg, 4)
-		ansmsg.write(conn)
-		ansmsg.print()
-		return
-	}
 	//success
-	ansmsg.gen(&reqmsg, 0)
+	ansmsg.gen(0)
 	ansmsg.write(conn)
 	ansmsg.print()
 
@@ -109,17 +108,12 @@ func pipe(a net.Conn, b net.Conn) {
 }
 
 func resend(in net.Conn, out net.Conn) {
-	buf := make([]byte, 10240)
-	for {
-		n, err := in.Read(buf)
-		if io.EOF == err {
-			//log.Println("io.EOF")
-			return
-		} else if err != nil {
-			log.Println("resend err", err)
-			return
-		}
-		out.Write(buf[:n])
+	_, err := io.Copy(in, out)
+	if err != nil {
+		log.Println(err)
+		in.Close()
+		out.Close()
+		return
 	}
 }
 
@@ -127,8 +121,6 @@ func recv(buf []byte, m int, conn net.Conn) (n int, err error) {
 	for nn := 0; n < m; {
 		nn, err = conn.Read(buf[n:m])
 		if err != nil && io.EOF != err {
-			log.Println("err:", err)
-			panic(err)
 			return
 		}
 		n += nn
@@ -261,11 +253,11 @@ type ansMsg struct {
 	mlen uint16
 }
 
-func (msg *ansMsg) gen(req *ReqMsg, rep uint8) {
+func (msg *ansMsg) gen(rep uint8) {
 	msg.ver = 5
 	msg.rep = rep //rfc1928
 	msg.rsv = 0
-	msg.atyp = 1 //req.atyp
+	msg.atyp = 1
 
 	msg.buf[0], msg.buf[1], msg.buf[2], msg.buf[3] = msg.ver, msg.rep, msg.rsv, msg.atyp
 	for i := 5; i < 11; i++ {

@@ -37,17 +37,15 @@ func main() {
 }
 
 func handleConnection(conn net.Conn) {
-	//defer conn.Close()
 	log.Println("remote addr:", conn.RemoteAddr())
 
-	var (
-		reqmsg ReqMsg
-	)
+	var reqmsg ReqMsg
 
 	buf := make([]byte, 100)
 	n, err := conn.Read(buf)
 	if err != nil {
 		log.Println(n, err)
+		conn.Close()
 		return
 	}
 
@@ -55,15 +53,19 @@ func handleConnection(conn net.Conn) {
 	err = decode(buf[:n], &reqmsg)
 	if err != nil {
 		log.Println(err)
+		conn.Close()
 		return
 	}
 
 	log.Println(reqmsg.Reqtype, reqmsg.Url)
 
 	//connect
-	var pconn net.Conn
-	pconn, err = net.Dial(reqmsg.Reqtype, reqmsg.Url)
-	//defer pconn.Close()
+	pconn, err := net.Dial(reqmsg.Reqtype, reqmsg.Url)
+	if err!=nil{
+		log.Println(err)
+		conn.Close()
+		return
+	}
 
 	pipe(conn, pconn)
 }
@@ -80,17 +82,12 @@ func pipe(a net.Conn, b net.Conn) {
 }
 
 func resend(in net.Conn, out net.Conn) {
-	buf := make([]byte, 10240)
-	for {
-		n, err := in.Read(buf)
-		if err == io.EOF {
-			//log.Println("io.EOF")
-			return
-		} else if err != nil {
-			log.Println("resend err", err)
-			return
-		}
-		out.Write(buf[:n])
+	_, err := io.Copy(in, out)
+	if err != nil {
+		log.Println(err)
+		in.Close()
+		out.Close()
+		return
 	}
 }
 
