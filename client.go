@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	version = "0.1"
+	version = "0.1.1"
 )
 
 func main() {
@@ -119,6 +119,11 @@ func handleConnection(conn net.Conn, key, host, port string) {
 	//读取服务端返回信息
 	buf := make([]byte, 1)
 	n, err := pconn.Read(buf)
+	if err == io.EOF {//忽略空数据
+		conn.Close()
+		pconn.Close()
+		return
+	}
 	if err != nil {
 		log.Println(n, err)
 		conn.Close()
@@ -168,7 +173,7 @@ func resend(in net.Conn, out net.Conn) {
 func recv(buf []byte, m int, conn net.Conn) (n int, err error) {
 	for nn := 0; n < m; {
 		nn, err = conn.Read(buf[n:m])
-		if err != nil && io.EOF != err {
+		if err != nil && err != io.EOF {
 			return
 		}
 		n += nn

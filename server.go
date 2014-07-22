@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	version = "0.1"
+	version = "0.1.1"
 )
 
 func main() {
@@ -73,6 +73,10 @@ func handleConnection(conn net.Conn, key string) {
 
 	//对数据解码
 	err = decode(buf[:n], &reqmsg)
+	if err == io.ErrUnexpectedEOF {//忽略空数据
+		conn.Close()
+		return
+	}
 	if err != nil {
 		log.Println(err)
 		conn.Close()
@@ -90,7 +94,7 @@ func handleConnection(conn net.Conn, key string) {
 			return
 		}
 	} else {
-		log.Println(conn.RemoteAddr(), "验证失败")
+		log.Println(conn.RemoteAddr(), "验证失败，对方所使用的key：", reqmsg.Key)
 		_, err = conn.Write([]byte{1})
 		if err != nil {
 			log.Println(err)
