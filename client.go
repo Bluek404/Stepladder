@@ -91,9 +91,14 @@ func handleConnection(conn net.Conn, key, host, port string) {
 
 	//编码
 	enc, err := encode(&reqmsg)
+	if err != nil {
+		log.Println(err)
+		conn.Close()
+		return
+	}
 
 	_, err = pconn.Write(enc)
-	if err != nil { //如果收到空数据就直接关闭
+	if err != nil {
 		log.Println(err)
 		conn.Close()
 		pconn.Close()
@@ -103,11 +108,6 @@ func handleConnection(conn net.Conn, key, host, port string) {
 	//读取服务端返回信息
 	buf := make([]byte, 1)
 	n, err := pconn.Read(buf)
-	if err == io.EOF {
-		conn.Close()
-		pconn.Close()
-		return
-	}
 	if err != nil {
 		log.Println(n, err)
 		conn.Close()
