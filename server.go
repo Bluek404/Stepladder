@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	version = "0.1.1"
+	version = "0.1.2"
 )
 
 func main() {
@@ -73,7 +73,7 @@ func handleConnection(conn net.Conn, key string) {
 
 	//对数据解码
 	err = decode(buf[:n], &reqmsg)
-	if err == io.ErrUnexpectedEOF {//忽略空数据
+	if err == io.ErrUnexpectedEOF { //忽略空数据
 		conn.Close()
 		return
 	}
@@ -128,13 +128,11 @@ func pipe(a net.Conn, b net.Conn) {
 }
 
 func resend(in net.Conn, out net.Conn) {
-	_, err := io.Copy(in, out)
-	if err != nil {
-		log.Println(err)
-		in.Close()
-		out.Close()
-		return
-	}
+	io.Copy(in, out)
+
+	log.Println(out.RemoteAddr(), "到", in.RemoteAddr(), "的链接已断开")
+	out.Close()
+	in.Close()
 }
 
 type ReqMsg struct {
