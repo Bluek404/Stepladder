@@ -63,7 +63,7 @@ func handleConnection(conn net.Conn, key string) {
 
 	//对数据解码
 	err = decode(buf[:n], &reqmsg)
-	if err == io.EOF { //如果收到空数据就直接关闭
+	if err == io.ErrUnexpectedEOF { //如果收到空数据就直接关闭
 		conn.Close()
 		return
 	}
