@@ -11,6 +11,10 @@ import (
 	"net"
 )
 
+const (
+	version = "0.1"
+)
+
 func main() {
 	log.SetFlags(log.Lshortfile)
 
@@ -26,6 +30,13 @@ func main() {
 		serverHost = config.MustValue("server", "host", "127.0.0.1")
 		serverPort = config.MustValue("server", "port", "8081")
 	)
+
+	log.Println("|>>>>>>>>>>>>>>>|<<<<<<<<<<<<<<<|")
+	log.Println("程序版本：" + version)
+	log.Println("代理端口：" + port)
+	log.Println("Key：" + key)
+	log.Println("服务器地址：" + serverHost + ":" + serverPort)
+	log.Println("|>>>>>>>>>>>>>>>|<<<<<<<<<<<<<<<|")
 
 	ln, err := net.Listen("tcp", ":"+port)
 	if err != nil {

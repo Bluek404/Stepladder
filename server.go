@@ -10,6 +10,10 @@ import (
 	"net"
 )
 
+const (
+	version = "0.1"
+)
+
 func main() {
 	log.SetFlags(log.Lshortfile)
 
@@ -23,6 +27,12 @@ func main() {
 		key  = cfg.MustValue("client", "key", "EbzHvwg8BVYz9Rv3")
 		port = cfg.MustValue("server", "port", "8081")
 	)
+
+	log.Println("|>>>>>>>>>>>>>>>|<<<<<<<<<<<<<<<|")
+	log.Println("程序版本：" + version)
+	log.Println("监听端口：" + port)
+	log.Println("Key：" + key)
+	log.Println("|>>>>>>>>>>>>>>>|<<<<<<<<<<<<<<<|")
 
 	cer, err := tls.LoadX509KeyPair("cert.pem", "key.pem")
 	if err != nil {
