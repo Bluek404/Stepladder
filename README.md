@@ -8,26 +8,32 @@ Stepladder
 使用方法
 -------
 
-先修改客户端中的`127.0.0.1`为你的服务器地址
+**客户端：**
 
-然后`go build client.go`即可
+  1. `go build client.go`
 
-服务端需要先在服务器上创建证书
+  2. 然后把`client`文件和`client.ini`放到客户端（你的电脑）
 
-```shell
-openssl genrsa -out key.pem 2048
-openssl req -new -x509 -key key.pem -out cert.pem -days 3650
-```
+  3. 修改`client.ini`的配置
 
-然后在防火墙上开启8081端口（当然也可以在源码里修改为其他端口）
+**服务端：**
 
-然后`go build server.go`就行
+  1. `go build server.go`
+
+  2. 把`server`文件和`server.ini`放到服务端（必须是不受GFW限制的服务器）
+
+  3. 在服务器上创建证书
+  `openssl genrsa -out key.pem 2048`
+  `openssl req -new -x509 -key key.pem -out cert.pem -days 3650`
+  4. 修改`server.ini`的配置
+
+  5. 然后在防火墙上开启8081端口（当然也可以在`server.ini`里修改为其他端口）
 
 TODO
 ----
 
-添加验证系统（用户名+密码或者直接用key）
+~~添加验证系统（用户名+密码或者直接用key）~~
 
-添加配置文件
+~~添加配置文件~~
 
 可选的图形界面

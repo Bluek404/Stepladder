@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/gob"
 	"fmt"
+	"github.com/Unknwon/goconfig"
 	"io"
 	"log"
 	"net"
@@ -13,7 +14,20 @@ import (
 func main() {
 	log.SetFlags(log.Lshortfile)
 
-	ln, err := net.Listen("tcp", ":7071")
+	config, err := goconfig.LoadConfigFile("client.ini")
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	var (
+		port       = config.MustValue("client", "port", "7071")
+		key        = config.MustValue("client", "key", "EbzHvwg8BVYz9Rv3")
+		serverHost = config.MustValue("server", "host", "127.0.0.1")
+		serverPort = config.MustValue("server", "port", "8081")
+	)
+
+	ln, err := net.Listen("tcp", ":"+port)
 	if err != nil {
 		log.Println(err)
 	}
@@ -23,11 +37,11 @@ func main() {
 			log.Println(err)
 			continue
 		}
-		go handleConnection(conn)
+		go handleConnection(conn, key, serverHost, serverPort)
 	}
 }
 
-func handleConnection(conn net.Conn) {
+func handleConnection(conn net.Conn, key, host, port string) {
 	//defer conn.Close()
 	log.Println("remote addr:", conn.RemoteAddr())
 
@@ -66,19 +80,42 @@ func handleConnection(conn net.Conn) {
 		InsecureSkipVerify: true,
 	}
 
-	pconn, err := tls.Dial("tcp", "127.0.0.1:8081", conf)
+	pconn, err := tls.Dial("tcp", host+":"+port, conf)
 	if err != nil {
 		log.Println(err)
 		conn.Close()
 		return
 	}
 
+	reqmsg.Key = key
+
 	//编码
 	enc, err := encode(&reqmsg)
 
 	_, err = pconn.Write(enc)
-	if err != nil {
+	if err != nil { //如果收到空数据就直接关闭
 		log.Println(err)
+		conn.Close()
+		pconn.Close()
+		return
+	}
+
+	//读取服务端返回信息
+	buf := make([]byte, 1)
+	n, err := pconn.Read(buf)
+	if err == io.EOF {
+		conn.Close()
+		pconn.Close()
+		return
+	}
+	if err != nil {
+		log.Println(n, err)
+		conn.Close()
+		pconn.Close()
+		return
+	}
+	if buf[0] != 0 {
+		log.Println("服务端验证失败")
 		conn.Close()
 		pconn.Close()
 		return
@@ -184,6 +221,7 @@ type ReqMsg struct {
 
 	Reqtype string
 	Url     string
+	Key     string
 }
 
 func (msg *ReqMsg) read(conn net.Conn) (err error) {

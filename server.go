@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	"encoding/gob"
+	"github.com/Unknwon/goconfig"
 	"io"
 	"log"
 	"net"
@@ -12,6 +13,17 @@ import (
 func main() {
 	log.SetFlags(log.Lshortfile)
 
+	cfg, err := goconfig.LoadConfigFile("server.ini")
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	var (
+		key  = cfg.MustValue("client", "key", "EbzHvwg8BVYz9Rv3")
+		port = cfg.MustValue("server", "port", "8081")
+	)
+
 	cer, err := tls.LoadX509KeyPair("cert.pem", "key.pem")
 	if err != nil {
 		log.Println(err)
@@ -19,7 +31,7 @@ func main() {
 	}
 
 	config := &tls.Config{Certificates: []tls.Certificate{cer}}
-	ln, err := tls.Listen("tcp", ":8081", config)
+	ln, err := tls.Listen("tcp", ":"+port, config)
 	if err != nil {
 		log.Println(err)
 		return
@@ -32,11 +44,11 @@ func main() {
 			log.Println(err)
 			continue
 		}
-		go handleConnection(conn)
+		go handleConnection(conn, key)
 	}
 }
 
-func handleConnection(conn net.Conn) {
+func handleConnection(conn net.Conn, key string) {
 	log.Println("remote addr:", conn.RemoteAddr())
 
 	var reqmsg ReqMsg
@@ -51,17 +63,41 @@ func handleConnection(conn net.Conn) {
 
 	//对数据解码
 	err = decode(buf[:n], &reqmsg)
+	if err == io.EOF { //如果收到空数据就直接关闭
+		conn.Close()
+		return
+	}
 	if err != nil {
 		log.Println(err)
 		conn.Close()
 		return
 	}
 
-	log.Println(reqmsg.Reqtype, reqmsg.Url)
+	log.Println(conn.RemoteAddr(), reqmsg.Reqtype, reqmsg.Url)
+
+	//验证key
+	if reqmsg.Key == key {
+		_, err = conn.Write([]byte{0})
+		if err != nil {
+			log.Println(err)
+			conn.Close()
+			return
+		}
+	} else {
+		log.Println(conn.RemoteAddr(), "验证失败")
+		_, err = conn.Write([]byte{1})
+		if err != nil {
+			log.Println(err)
+			conn.Close()
+			return
+		}
+		conn.Close()
+		return
+	}
 
 	//connect
 	pconn, err := net.Dial(reqmsg.Reqtype, reqmsg.Url)
-	if err!=nil{
+	if err != nil {
 		log.Println(err)
 		conn.Close()
 		return
@@ -94,4 +130,5 @@ func resend(in net.Conn, out net.Conn) {
 type ReqMsg struct {
 	Reqtype string
 	Url     string
+	Key     string
 }
