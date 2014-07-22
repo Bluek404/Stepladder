@@ -22,9 +22,10 @@ Stepladder
 
   2. 把`server`文件和`server.ini`放到服务端（必须是不受GFW限制的服务器）
 
-  3. 在服务器上创建证书
-  `openssl genrsa -out key.pem 2048`
+  3. 在服务器上创建证书  
+  `openssl genrsa -out key.pem 2048`  
   `openssl req -new -x509 -key key.pem -out cert.pem -days 3650`
+
   4. 修改`server.ini`的配置
 
   5. 然后在防火墙上开启8081端口（当然也可以在`server.ini`里修改为其他端口）
