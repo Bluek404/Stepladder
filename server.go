@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	version = "0.1.2"
+	version = "0.1.3"
 )
 
 func main() {
@@ -123,16 +123,21 @@ func decode(data []byte, to interface{}) error {
 }
 
 func pipe(a net.Conn, b net.Conn) {
-	go resend(a, b)
-	go resend(b, a)
+	cha := make(chan int, 10)
+	chb := make(chan int, 10)
+	go resend(a, b, cha, chb)
+	go resend(b, a, chb, cha)
 }
 
-func resend(in net.Conn, out net.Conn) {
+func resend(in net.Conn, out net.Conn, chin, chout chan int) {
 	io.Copy(in, out)
 
-	log.Println(out.RemoteAddr(), "到", in.RemoteAddr(), "的链接已断开")
-	out.Close()
+	log.Println("等待断开", in.RemoteAddr(), "到", out.RemoteAddr(), "链接")
+	chout <- 0
+	<-chin
+	log.Println(in.RemoteAddr(), "到", out.RemoteAddr(), "链接的已断开")
 	in.Close()
+	out.Close()
 }
 
 type ReqMsg struct {
