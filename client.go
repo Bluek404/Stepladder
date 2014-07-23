@@ -110,7 +110,7 @@ func handleConnection(conn net.Conn, key, serverHost, serverPort string) {
 	}
 
 	to := cmd.DestAddress()
-	log.Println(conn.RemoteAddr(), to)
+	log.Println(conn.RemoteAddr(), cmd.reqtype, to)
 
 	conf := &tls.Config{
 		InsecureSkipVerify: true,
@@ -133,7 +133,6 @@ func handleConnection(conn net.Conn, key, serverHost, serverPort string) {
 		pconn.Close()
 		return
 	}
-
 
 	//读取服务端返回信息
 	buf = make([]byte, 1)

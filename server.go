@@ -110,7 +110,7 @@ func handleConnection(conn net.Conn, key string) {
 		return
 	}
 
-	log.Println(conn.RemoteAddr(),handshake.Reqtype, handshake.Url)
+	log.Println(conn.RemoteAddr(), handshake.Reqtype, handshake.Url)
 
 	//connect
 	pconn, err := net.Dial(handshake.Reqtype, handshake.Url)
