@@ -8,10 +8,11 @@ import (
 	"io"
 	"log"
 	"net"
+	"sync"
 )
 
 const (
-	version = "0.1.3"
+	version = "0.1.5"
 )
 
 func main() {
@@ -59,10 +60,11 @@ func main() {
 }
 
 func handleConnection(conn net.Conn, key string) {
-	log.Println("remote addr:", conn.RemoteAddr())
+	log.Println(conn.RemoteAddr())
 
-	var reqmsg ReqMsg
+	var handshake Handshake
 
+	//读取客户端发送的key
 	buf := make([]byte, 100)
 	n, err := conn.Read(buf)
 	if err != nil {
@@ -71,22 +73,8 @@ func handleConnection(conn net.Conn, key string) {
 		return
 	}
 
-	//对数据解码
-	err = decode(buf[:n], &reqmsg)
-	if err == io.ErrUnexpectedEOF { //忽略空数据
-		conn.Close()
-		return
-	}
-	if err != nil {
-		log.Println(err)
-		conn.Close()
-		return
-	}
-
-	log.Println(conn.RemoteAddr(), reqmsg.Reqtype, reqmsg.Url)
-
 	//验证key
-	if reqmsg.Key == key {
+	if string(buf[:n]) == key {
 		_, err = conn.Write([]byte{0})
 		if err != nil {
 			log.Println(err)
@@ -94,7 +82,7 @@ func handleConnection(conn net.Conn, key string) {
 			return
 		}
 	} else {
-		log.Println(conn.RemoteAddr(), "验证失败，对方所使用的key：", reqmsg.Key)
+		log.Println(conn.RemoteAddr(), "验证失败，对方所使用的key：", handshake.Key)
 		_, err = conn.Write([]byte{1})
 		if err != nil {
 			log.Println(err)
@@ -105,15 +93,39 @@ func handleConnection(conn net.Conn, key string) {
 		return
 	}
 
-	//connect
-	pconn, err := net.Dial(reqmsg.Reqtype, reqmsg.Url)
+	//读取客户端发送数据
+	buf = make([]byte, 100)
+	n, err = conn.Read(buf)
+	if err != nil {
+		log.Println(n, err)
+		conn.Close()
+		return
+	}
+
+	//对数据解码
+	err = decode(buf[:n], &handshake)
 	if err != nil {
 		log.Println(err)
 		conn.Close()
 		return
 	}
 
-	pipe(conn, pconn)
+	log.Println(conn.RemoteAddr(),handshake.Reqtype, handshake.Url)
+
+	//connect
+	pconn, err := net.Dial(handshake.Reqtype, handshake.Url)
+	if err != nil {
+		log.Println(err)
+		conn.Close()
+		return
+	}
+
+	var wg sync.WaitGroup
+
+	wg.Add(2)
+	go resend(wg, conn, pconn)
+	go resend(wg, pconn, conn)
+	wg.Wait()
 }
 
 func decode(data []byte, to interface{}) error {
@@ -122,26 +134,16 @@ func decode(data []byte, to interface{}) error {
 	return dec.Decode(to)
 }
 
-func pipe(a net.Conn, b net.Conn) {
-	cha := make(chan int, 10)
-	chb := make(chan int, 10)
-	go resend(a, b, cha, chb)
-	go resend(b, a, chb, cha)
+func resend(wg sync.WaitGroup, in net.Conn, out net.Conn) {
+	defer wg.Done()
+	_, err := io.Copy(in, out)
+	if err != nil {
+		log.Println(err)
+	}
 }
 
-func resend(in net.Conn, out net.Conn, chin, chout chan int) {
-	io.Copy(in, out)
-
-	log.Println("等待断开", in.RemoteAddr(), "到", out.RemoteAddr(), "链接")
-	chout <- 0
-	<-chin
-	log.Println(in.RemoteAddr(), "到", out.RemoteAddr(), "链接的已断开")
-	in.Close()
-	out.Close()
-}
-
-type ReqMsg struct {
-	Reqtype string
-	Url     string
+type Handshake struct {
 	Key     string
+	Url     string
+	Reqtype string
 }

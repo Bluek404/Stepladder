@@ -3,16 +3,35 @@ package main
 import (
 	"bytes"
 	"crypto/tls"
+	"encoding/binary"
 	"encoding/gob"
-	"fmt"
+	"errors"
 	"github.com/Unknwon/goconfig"
 	"io"
 	"log"
 	"net"
+	"strconv"
+	"sync"
 )
 
 const (
-	version = "0.1.3"
+	version = "0.1.5"
+
+	verSocks5 = 0x05
+
+	cmdConnect = 0x01
+
+	atypIPv4Address = 0x01
+	atypDomainName  = 0x03
+	atypIPv6Address = 0x04
+
+	reqtypeTCP  = 0x01
+	reqtypeBIND = 0x02
+	reqtypeUDP  = 0x03
+
+	repSucceeded = 0x00
+
+	rsvReserved = 0x00
 )
 
 func main() {
@@ -41,9 +60,20 @@ func main() {
 	ln, err := net.Listen("tcp", ":"+port)
 	if err != nil {
 		log.Println(err)
+		return
 	}
+
+	defer ln.Close()
+
 	for {
 		conn, err := ln.Accept()
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		log.Println(conn.RemoteAddr())
+
 		if err != nil {
 			log.Println(err)
 			continue
@@ -52,56 +82,80 @@ func main() {
 	}
 }
 
-func handleConnection(conn net.Conn, key, host, port string) {
-	//defer conn.Close()
-	log.Println("remote addr:", conn.RemoteAddr())
-
-	var (
-		reqhello reqHello
-		ansecho  ansEcho
-		reqmsg   ReqMsg
-		ansmsg   ansMsg
-	)
+func handleConnection(conn net.Conn, key, serverHost, serverPort string) {
+	defer conn.Close()
 
 	//recv hello
 	var err error
-	err = reqhello.read(conn)
+	err = read(conn)
 	if err != nil {
 		log.Println(err)
 		conn.Close()
 		return
 	}
-	reqhello.print()
 
 	//send echo
-	ansecho.gen(0)
-	ansecho.write(conn)
-	ansecho.print()
+	buf := []byte{5, 0}
+	conn.Write(buf[:])
 
-	//recv request
-	err = reqmsg.read(conn)
+	var cmd cmd
+	_, err = cmd.ReadFrom(conn)
 	if err != nil {
 		log.Println(err)
-		conn.Close()
 		return
 	}
-	reqmsg.print()
+
+	if cmd.cmd != cmdConnect {
+		log.Println("Error:", cmd.cmd)
+	}
+
+	to := cmd.DestAddress()
+	log.Println(conn.RemoteAddr(), to)
 
 	conf := &tls.Config{
 		InsecureSkipVerify: true,
 	}
 
-	pconn, err := tls.Dial("tcp", host+":"+port, conf)
+	//链接服务器
+	pconn, err := tls.Dial("tcp", serverHost+":"+serverPort, conf)
 	if err != nil {
 		log.Println(err)
 		conn.Close()
 		return
 	}
+	defer pconn.Close()
 
-	reqmsg.Key = key
+	//发送验证key
+	_, err = pconn.Write([]byte(key))
+	if err != nil {
+		log.Println(err)
+		conn.Close()
+		pconn.Close()
+		return
+	}
+
+
+	//读取服务端返回信息
+	buf = make([]byte, 1)
+	n, err := pconn.Read(buf)
+	if err != nil {
+		log.Println(n, err)
+		conn.Close()
+		pconn.Close()
+		return
+	}
+	if buf[0] != 0 {
+		log.Println("服务端验证失败")
+		conn.Close()
+		pconn.Close()
+		return
+	}
 
 	//编码
-	enc, err := encode(&reqmsg)
+	enc, err := encode(&Handshake{
+		Reqtype: cmd.reqtype,
+		Url:     to,
+	})
 	if err != nil {
 		log.Println(err)
 		conn.Close()
@@ -116,61 +170,66 @@ func handleConnection(conn net.Conn, key, host, port string) {
 		return
 	}
 
-	//读取服务端返回信息
-	buf := make([]byte, 1)
-	n, err := pconn.Read(buf)
-	if err == io.EOF { //忽略空数据
-		conn.Close()
-		pconn.Close()
-		return
+	r := &cmdResp{
+		ver: verSocks5,
+		rep: repSucceeded,
+		rsv: rsvReserved,
 	}
+
+	host, port, err := net.SplitHostPort(pconn.LocalAddr().String())
 	if err != nil {
-		log.Println(n, err)
 		conn.Close()
 		pconn.Close()
-		return
-	}
-	if buf[0] != 0 {
-		log.Println("服务端验证失败")
-		conn.Close()
-		pconn.Close()
+		log.Println(err)
 		return
 	}
 
-	//success
-	ansmsg.gen(0)
-	ansmsg.write(conn)
-	ansmsg.print()
+	ip := net.ParseIP(host)
+	if ipv4 := ip.To4(); ipv4 != nil {
+		r.atyp = atypIPv4Address
+		r.bnd_addr = ipv4[:net.IPv4len]
+	} else {
+		r.atyp = atypIPv6Address
+		r.bnd_addr = ip[:net.IPv6len]
+	}
 
-	pipe(pconn, conn)
-}
-
-func encode(data interface{}) ([]byte, error) {
-	buf := bytes.NewBuffer(nil)
-	enc := gob.NewEncoder(buf)
-	err := enc.Encode(data)
+	prt, err := strconv.Atoi(port)
 	if err != nil {
-		return nil, err
+		conn.Close()
+		pconn.Close()
+		log.Println(err)
+		return
 	}
-	return buf.Bytes(), nil
+	r.bnd_port = uint16(prt)
+
+	if _, err = r.WriteTo(conn); err != nil {
+		conn.Close()
+		pconn.Close()
+		log.Println(err)
+		return
+	}
+
+	var wg sync.WaitGroup
+
+	wg.Add(2)
+	go resend(wg, conn, pconn)
+	go resend(wg, pconn, conn)
+	wg.Wait()
 }
 
-func pipe(a net.Conn, b net.Conn) {
-	cha := make(chan int, 10)
-	chb := make(chan int, 10)
-	go resend(a, b, cha, chb)
-	go resend(b, a, chb, cha)
-}
+func read(conn net.Conn) (err error) {
+	methods := make([]byte, 255)
 
-func resend(in net.Conn, out net.Conn, chin, chout chan int) {
-	io.Copy(in, out)
+	_, err = recv(methods[:2], 2, conn)
+	if err != nil {
+		return
+	}
 
-	log.Println("等待断开", in.RemoteAddr(), "到", out.RemoteAddr(), "链接")
-	chout <- 0
-	<-chin
-	log.Println(in.RemoteAddr(), "到", out.RemoteAddr(), "链接的已断开")
-	in.Close()
-	out.Close()
+	_, err = recv(methods[:], int(methods[1]), conn)
+	if err != nil {
+		return
+	}
+	return
 }
 
 func recv(buf []byte, m int, conn net.Conn) (n int, err error) {
@@ -184,150 +243,141 @@ func recv(buf []byte, m int, conn net.Conn) (n int, err error) {
 	return
 }
 
-type reqHello struct {
-	ver      uint8
-	nmethods uint8
-	methods  [255]uint8
-}
-
-func (msg *reqHello) read(conn net.Conn) (err error) {
-	_, err = recv(msg.methods[:2], 2, conn)
+func encode(data interface{}) ([]byte, error) {
+	buf := bytes.NewBuffer(nil)
+	enc := gob.NewEncoder(buf)
+	err := enc.Encode(data)
 	if err != nil {
-		return
+		return nil, err
 	}
-	msg.ver, msg.nmethods = msg.methods[0], msg.methods[1]
-	_, err = recv(msg.methods[:], int(msg.nmethods), conn)
+	return buf.Bytes(), nil
+}
+
+func resend(wg sync.WaitGroup, in net.Conn, out net.Conn) {
+	defer wg.Done()
+	_, err := io.Copy(in, out)
 	if err != nil {
-		return
+		log.Println(err)
 	}
-	return
-}
-func (msg *reqHello) print() {
-	log.Println("************")
-	log.Println("get reqHello msg:")
-	log.Println("ver:", msg.ver, " nmethods:", msg.nmethods, " methods:", msg.methods[:msg.nmethods])
-	log.Println("************")
 }
 
-type ansEcho struct {
-	ver    uint8
-	method uint8
-	buf    [2]uint8
+type cmd struct {
+	ver      byte
+	cmd      byte
+	rsv      byte
+	atyp     byte
+	reqtype  string
+	dst_addr []byte
+	dst_port uint16
 }
 
-func (msg *ansEcho) gen(t uint8) {
-	msg.ver, msg.method = 5, t
-	msg.buf[0], msg.buf[1] = 5, t
+func (c *cmd) DestAddress() string {
+	var host string
+	switch c.atyp {
+	case atypIPv4Address:
+		host = net.IPv4(c.dst_addr[0], c.dst_addr[1], c.dst_addr[2], c.dst_addr[3]).String()
+	case atypDomainName:
+		host = string(c.dst_addr)
+	case atypIPv6Address:
+		host = net.IP(c.dst_addr).String()
+	default:
+		host = "<unsupported address type>"
+	}
+	return host + ":" + strconv.Itoa(int(c.dst_port))
 }
-func (msg *ansEcho) write(conn net.Conn) {
-	conn.Write(msg.buf[:])
-}
-func (msg *ansEcho) print() {
-	log.Println("------------------")
-	log.Println("send ansEcho msg:")
-	log.Println("ver:", msg.ver, " method:", msg.method)
-	log.Println("------------------")
-}
-
-type ReqMsg struct {
-	ver       uint8     // socks v5: 0x05
-	cmd       uint8     // CONNECT: 0x01, BIND:0x02, UDP ASSOCIATE: 0x03
-	rsv       uint8     //RESERVED
-	atyp      uint8     //IP V4 addr: 0x01, DOMANNAME: 0x03, IP V6 addr: 0x04
-	dst_addr  [255]byte //
-	dst_port  [2]uint8  //
-	dst_port2 uint16    //
-
-	Reqtype string
-	Url     string
-	Key     string
-}
-
-func (msg *ReqMsg) read(conn net.Conn) (err error) {
+func (c *cmd) ReadFrom(conn net.Conn) (n int64, err error) {
 	buf := make([]byte, 4)
 	_, err = recv(buf, 4, conn)
 	if err != nil {
 		return
 	}
+	c.ver, c.cmd, c.rsv, c.atyp = buf[0], buf[1], buf[2], buf[3]
 
-	msg.ver, msg.cmd, msg.rsv, msg.atyp = buf[0], buf[1], buf[2], buf[3]
-
-	if 5 != msg.ver || 0 != msg.rsv {
-		log.Println("Request Message VER or RSV error!")
-		return
-	}
-	switch msg.atyp {
-	case 1: //ip v4
-		_, err = recv(msg.dst_addr[:], 4, conn)
-	case 4:
-		_, err = recv(msg.dst_addr[:], 16, conn)
-	case 3:
-		_, err = recv(msg.dst_addr[:1], 1, conn)
-		_, err = recv(msg.dst_addr[1:], int(msg.dst_addr[0]), conn)
-	}
-	if err != nil {
-		return
-	}
-	_, err = recv(msg.dst_port[:], 2, conn)
-	if err != nil {
-		return
-	}
-
-	msg.dst_port2 = (uint16(msg.dst_port[0]) << 8) + uint16(msg.dst_port[1])
-
-	switch msg.cmd {
-	case 1:
-		msg.Reqtype = "tcp"
-	case 2:
+	switch c.cmd {
+	case reqtypeTCP:
+		c.reqtype = "tcp"
+	case reqtypeBIND:
 		log.Println("BIND")
-	case 3:
-		msg.Reqtype = "udp"
+	case reqtypeUDP:
+		c.reqtype = "udp"
 	}
-	switch msg.atyp {
-	case 1: // ipv4
-		msg.Url = fmt.Sprintf("%d.%d.%d.%d:%d", msg.dst_addr[0], msg.dst_addr[1], msg.dst_addr[2], msg.dst_addr[3], msg.dst_port2)
-	case 3: //DOMANNAME
-		msg.Url = string(msg.dst_addr[1 : 1+msg.dst_addr[0]])
-		msg.Url += fmt.Sprintf(":%d", msg.dst_port2)
-	case 4: //ipv6
-		log.Println("IPV6")
+
+	var ln byte
+	switch c.atyp {
+	case atypIPv4Address:
+		ln = net.IPv4len
+	case atypDomainName:
+		err = binary.Read(io.Reader(conn), binary.BigEndian, &ln)
+		if err != nil {
+			return
+		}
+		n++
+	case atypIPv6Address:
+		ln = net.IPv6len
+	default:
+		return
 	}
+	c.dst_addr = make([]byte, ln)
+	_, err = io.ReadFull(io.Reader(conn), c.dst_addr)
+	if err != nil {
+		return
+	}
+	n += int64(ln)
+
+	err = binary.Read(io.Reader(conn), binary.BigEndian, &c.dst_port)
+	if err != nil {
+		return
+	}
+	n += 2
 	return
 }
-func (msg *ReqMsg) print() {
-	log.Println("---***-----****----***---")
-	log.Println("get reqmsg:")
-	log.Println("ver:", msg.ver, " cmd:", msg.cmd, " rsv:", msg.rsv, " atyp", msg.atyp, " dst_addr:", msg.Url)
-	log.Println("---***-----****----***---")
+
+type cmdResp struct {
+	ver      byte
+	rep      byte
+	rsv      byte
+	atyp     byte
+	bnd_addr []byte
+	bnd_port uint16
 }
 
-type ansMsg struct {
-	ver  uint8
-	rep  uint8
-	rsv  uint8
-	atyp uint8
-	buf  [300]uint8
-	mlen uint16
-}
-
-func (msg *ansMsg) gen(rep uint8) {
-	msg.ver = 5
-	msg.rep = rep //rfc1928
-	msg.rsv = 0
-	msg.atyp = 1
-
-	msg.buf[0], msg.buf[1], msg.buf[2], msg.buf[3] = msg.ver, msg.rep, msg.rsv, msg.atyp
-	for i := 5; i < 11; i++ {
-		msg.buf[i] = 0
+func (c *cmdResp) WriteTo(w io.Writer) (n int64, err error) {
+	if c.ver != verSocks5 {
+		err = errors.New("cmdResp.WriteTo: unsupported protocol version")
+		return
 	}
-	msg.mlen = 10
+	buf := make([]byte, 0, net.IPv6len+8)
+	buf = append(buf, c.ver, c.rep, c.rsv, c.atyp)
+	switch c.atyp {
+	case atypIPv4Address:
+		if len(c.bnd_addr) < net.IPv4len {
+			err = errors.New("cmdResp.bnd_addr too short")
+			return
+		}
+		buf = append(buf, c.bnd_addr[:net.IPv4len]...)
+	case atypDomainName:
+		if len(c.bnd_addr) > 255 {
+			err = errors.New("cmdResp.bnd_addr too large")
+			return
+		}
+		buf = append(buf, byte(len(c.bnd_addr)))
+		buf = append(buf, c.bnd_addr...)
+	case atypIPv6Address:
+		if len(c.bnd_addr) < net.IPv6len {
+			err = errors.New("cmdResp.bnd_addr too short")
+			return
+		}
+		buf = append(buf, c.bnd_addr[:net.IPv6len]...)
+	}
+	buf = append(buf, 0, 0)
+	binary.BigEndian.PutUint16(buf[len(buf)-2:], c.bnd_port)
+	var i int
+	i, err = w.Write(buf)
+	n = int64(i)
+	return
 }
-func (msg *ansMsg) write(conn net.Conn) {
-	conn.Write(msg.buf[:msg.mlen])
-}
-func (msg *ansMsg) print() {
-	log.Println("***-----****----***---***")
-	log.Println("send ans msg:")
-	log.Println(msg.buf[:msg.mlen])
-	log.Println("***-----****----***---***")
+
+type Handshake struct {
+	Url     string
+	Reqtype string
 }
