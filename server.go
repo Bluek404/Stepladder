@@ -143,7 +143,6 @@ func resend(wg sync.WaitGroup, in net.Conn, out net.Conn) {
 }
 
 type Handshake struct {
-	Key     string
 	Url     string
 	Reqtype string
 }
