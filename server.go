@@ -53,7 +53,7 @@ func main() {
 		conn, err := ln.Accept()
 		if err != nil {
 			log.Println(err)
-			continue
+			return
 		}
 		go handleConnection(conn, key)
 	}
