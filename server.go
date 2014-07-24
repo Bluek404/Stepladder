@@ -59,8 +59,6 @@ func main() {
 }
 
 func handleConnection(conn net.Conn, key string) {
-	defer conn.Close()
-
 	log.Println("[+]", conn.RemoteAddr())
 
 	var handshake Handshake
@@ -113,7 +111,6 @@ func handleConnection(conn net.Conn, key string) {
 		log.Println(err)
 		return
 	}
-	defer pconn.Close()
 
 	go func(in net.Conn, out net.Conn, host, reqtype string) {
 		io.Copy(in, out)
