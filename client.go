@@ -35,7 +35,7 @@ const (
 )
 
 func main() {
-	log.SetFlags(log.Lshortfile)
+	//log.SetFlags(log.Lshortfile)//debug时开启
 
 	config, err := goconfig.LoadConfigFile("client.ini")
 	if err != nil {
@@ -83,7 +83,7 @@ func main() {
 func handleConnection(conn net.Conn, key, serverHost, serverPort string) {
 	defer conn.Close()
 
-	log.Println(conn.RemoteAddr())
+	log.Println("[+]", conn.RemoteAddr())
 
 	//recv hello
 	var err error
@@ -198,13 +198,13 @@ func handleConnection(conn net.Conn, key, serverHost, serverPort string) {
 	go func(wg sync.WaitGroup, in net.Conn, out net.Conn, host, reqtype string) {
 		defer wg.Done()
 		io.Copy(in, out)
-		log.Println(in.RemoteAddr(), "=="+reqtype+"=>", host, "已完成")
+		log.Println(in.RemoteAddr(), "=="+reqtype+"=>", host, "[√]")
 	}(wg, conn, pconn, to, cmd.reqtype)
 
 	func(wg sync.WaitGroup, in net.Conn, out net.Conn, host, reqtype string) {
 		defer wg.Done()
 		io.Copy(in, out)
-		log.Println(out.RemoteAddr(), "<="+reqtype+"==", host, "已完成")
+		log.Println(out.RemoteAddr(), "<="+reqtype+"==", host, "[√]")
 	}(wg, pconn, conn, to, cmd.reqtype)
 	wg.Wait()
 }

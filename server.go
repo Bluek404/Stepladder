@@ -16,7 +16,7 @@ const (
 )
 
 func main() {
-	log.SetFlags(log.Lshortfile)
+	//log.SetFlags(log.Lshortfile)//debug时开启
 
 	cfg, err := goconfig.LoadConfigFile("server.ini")
 	if err != nil {
@@ -62,7 +62,7 @@ func main() {
 func handleConnection(conn net.Conn, key string) {
 	defer conn.Close()
 
-	log.Println(conn.RemoteAddr())
+	log.Println("[+]", conn.RemoteAddr())
 
 	var handshake Handshake
 
@@ -122,13 +122,13 @@ func handleConnection(conn net.Conn, key string) {
 	go func(wg sync.WaitGroup, in net.Conn, out net.Conn, host, reqtype string) {
 		defer wg.Done()
 		io.Copy(in, out)
-		log.Println(in.RemoteAddr(), "=="+reqtype+"=>", host, "已完成")
+		log.Println(in.RemoteAddr(), "=="+reqtype+"=>", host, "[√]")
 	}(wg, conn, pconn, handshake.Url, handshake.Reqtype)
 
 	func(wg sync.WaitGroup, in net.Conn, out net.Conn, host, reqtype string) {
 		defer wg.Done()
 		io.Copy(in, out)
-		log.Println(out.RemoteAddr(), "<="+reqtype+"==", host, "已完成")
+		log.Println(out.RemoteAddr(), "<="+reqtype+"==", host, "[√]")
 	}(wg, pconn, conn, handshake.Url, handshake.Reqtype)
 	wg.Wait()
 }
