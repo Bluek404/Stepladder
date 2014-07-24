@@ -71,11 +71,6 @@ func main() {
 			log.Println(err)
 			return
 		}
-
-		if err != nil {
-			log.Println(err)
-			continue
-		}
 		go handleConnection(conn, key, serverHost, serverPort)
 	}
 }
