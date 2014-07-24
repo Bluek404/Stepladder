@@ -8,11 +8,10 @@ import (
 	"io"
 	"log"
 	"net"
-	"sync"
 )
 
 const (
-	version = "0.1.6"
+	version = "0.1.7"
 )
 
 func main() {
@@ -53,7 +52,7 @@ func main() {
 		conn, err := ln.Accept()
 		if err != nil {
 			log.Println(err)
-			return
+			continue
 		}
 		go handleConnection(conn, key)
 	}
@@ -116,21 +115,19 @@ func handleConnection(conn net.Conn, key string) {
 	}
 	defer pconn.Close()
 
-	var wg sync.WaitGroup
-
-	wg.Add(1)
-	go func(wg sync.WaitGroup, in net.Conn, out net.Conn, host, reqtype string) {
-		defer wg.Done()
+	go func(in net.Conn, out net.Conn, host, reqtype string) {
 		io.Copy(in, out)
+		in.Close()
+		out.Close()
 		log.Println(in.RemoteAddr(), "=="+reqtype+"=>", host, "[√]")
-	}(wg, conn, pconn, handshake.Url, handshake.Reqtype)
+	}(conn, pconn, handshake.Url, handshake.Reqtype)
 
-	func(wg sync.WaitGroup, in net.Conn, out net.Conn, host, reqtype string) {
-		defer wg.Done()
+	go func(in net.Conn, out net.Conn, host, reqtype string) {
 		io.Copy(in, out)
+		in.Close()
+		out.Close()
 		log.Println(out.RemoteAddr(), "<="+reqtype+"==", host, "[√]")
-	}(wg, pconn, conn, handshake.Url, handshake.Reqtype)
-	wg.Wait()
+	}(pconn, conn, handshake.Url, handshake.Reqtype)
 }
 
 func decode(data []byte, to interface{}) error {

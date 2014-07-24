@@ -11,11 +11,10 @@ import (
 	"log"
 	"net"
 	"strconv"
-	"sync"
 )
 
 const (
-	version = "0.1.6"
+	version = "0.1.7"
 
 	verSocks5 = 0x05
 
@@ -62,22 +61,19 @@ func main() {
 		log.Println(err)
 		return
 	}
-
 	defer ln.Close()
 
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
 			log.Println(err)
-			return
+			continue
 		}
 		go handleConnection(conn, key, serverHost, serverPort)
 	}
 }
 
 func handleConnection(conn net.Conn, key, serverHost, serverPort string) {
-	defer conn.Close()
-
 	log.Println("[+]", conn.RemoteAddr())
 
 	//recv hello
@@ -117,7 +113,6 @@ func handleConnection(conn net.Conn, key, serverHost, serverPort string) {
 		log.Println(err)
 		return
 	}
-	defer pconn.Close()
 
 	//发送验证key
 	_, err = pconn.Write([]byte(key))
@@ -187,21 +182,19 @@ func handleConnection(conn net.Conn, key, serverHost, serverPort string) {
 		return
 	}
 
-	var wg sync.WaitGroup
-
-	wg.Add(1)
-	go func(wg sync.WaitGroup, in net.Conn, out net.Conn, host, reqtype string) {
-		defer wg.Done()
+	go func(in net.Conn, out net.Conn, host, reqtype string) {
 		io.Copy(in, out)
+		in.Close()
+		out.Close()
 		log.Println(in.RemoteAddr(), "=="+reqtype+"=>", host, "[√]")
-	}(wg, conn, pconn, to, cmd.reqtype)
+	}(conn, pconn, to, cmd.reqtype)
 
-	func(wg sync.WaitGroup, in net.Conn, out net.Conn, host, reqtype string) {
-		defer wg.Done()
+	go func(in net.Conn, out net.Conn, host, reqtype string) {
 		io.Copy(in, out)
+		in.Close()
+		out.Close()
 		log.Println(out.RemoteAddr(), "<="+reqtype+"==", host, "[√]")
-	}(wg, pconn, conn, to, cmd.reqtype)
-	wg.Wait()
+	}(pconn, conn, to, cmd.reqtype)
 }
 
 func read(conn net.Conn) (err error) {
