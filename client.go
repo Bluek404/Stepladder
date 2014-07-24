@@ -72,8 +72,6 @@ func main() {
 			return
 		}
 
-		log.Println(conn.RemoteAddr())
-
 		if err != nil {
 			log.Println(err)
 			continue
@@ -84,6 +82,8 @@ func main() {
 
 func handleConnection(conn net.Conn, key, serverHost, serverPort string) {
 	defer conn.Close()
+
+	log.Println(conn.RemoteAddr())
 
 	//recv hello
 	var err error

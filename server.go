@@ -60,6 +60,8 @@ func main() {
 }
 
 func handleConnection(conn net.Conn, key string) {
+	defer conn.Close()
+
 	log.Println(conn.RemoteAddr())
 
 	var handshake Handshake
@@ -119,6 +121,7 @@ func handleConnection(conn net.Conn, key string) {
 		conn.Close()
 		return
 	}
+	defer pconn.Close()
 
 	var wg sync.WaitGroup
 
