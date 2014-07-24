@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	version = "0.1.5"
+	version = "0.1.6"
 
 	verSocks5 = 0x05
 
@@ -90,7 +90,6 @@ func handleConnection(conn net.Conn, key, serverHost, serverPort string) {
 	err = read(conn)
 	if err != nil {
 		log.Println(err)
-		conn.Close()
 		return
 	}
 
@@ -107,10 +106,11 @@ func handleConnection(conn net.Conn, key, serverHost, serverPort string) {
 
 	if cmd.cmd != cmdConnect {
 		log.Println("Error:", cmd.cmd)
+		return
 	}
 
 	to := cmd.DestAddress()
-	log.Println(conn.RemoteAddr(), cmd.reqtype, to)
+	log.Println(conn.RemoteAddr(), "=="+cmd.reqtype+"=>", to)
 
 	conf := &tls.Config{
 		InsecureSkipVerify: true,
@@ -120,7 +120,6 @@ func handleConnection(conn net.Conn, key, serverHost, serverPort string) {
 	pconn, err := tls.Dial("tcp", serverHost+":"+serverPort, conf)
 	if err != nil {
 		log.Println(err)
-		conn.Close()
 		return
 	}
 	defer pconn.Close()
@@ -129,8 +128,6 @@ func handleConnection(conn net.Conn, key, serverHost, serverPort string) {
 	_, err = pconn.Write([]byte(key))
 	if err != nil {
 		log.Println(err)
-		conn.Close()
-		pconn.Close()
 		return
 	}
 
@@ -139,14 +136,10 @@ func handleConnection(conn net.Conn, key, serverHost, serverPort string) {
 	n, err := pconn.Read(buf)
 	if err != nil {
 		log.Println(n, err)
-		conn.Close()
-		pconn.Close()
 		return
 	}
 	if buf[0] != 0 {
 		log.Println("服务端验证失败")
-		conn.Close()
-		pconn.Close()
 		return
 	}
 
@@ -157,15 +150,12 @@ func handleConnection(conn net.Conn, key, serverHost, serverPort string) {
 	})
 	if err != nil {
 		log.Println(err)
-		conn.Close()
 		return
 	}
 
 	_, err = pconn.Write(enc)
 	if err != nil {
 		log.Println(err)
-		conn.Close()
-		pconn.Close()
 		return
 	}
 
@@ -177,8 +167,6 @@ func handleConnection(conn net.Conn, key, serverHost, serverPort string) {
 
 	host, port, err := net.SplitHostPort(pconn.LocalAddr().String())
 	if err != nil {
-		conn.Close()
-		pconn.Close()
 		log.Println(err)
 		return
 	}
@@ -194,25 +182,30 @@ func handleConnection(conn net.Conn, key, serverHost, serverPort string) {
 
 	prt, err := strconv.Atoi(port)
 	if err != nil {
-		conn.Close()
-		pconn.Close()
 		log.Println(err)
 		return
 	}
 	r.bnd_port = uint16(prt)
 
 	if _, err = r.WriteTo(conn); err != nil {
-		conn.Close()
-		pconn.Close()
 		log.Println(err)
 		return
 	}
 
 	var wg sync.WaitGroup
 
-	wg.Add(2)
-	go resend(wg, conn, pconn)
-	go resend(wg, pconn, conn)
+	wg.Add(1)
+	go func(wg sync.WaitGroup, in net.Conn, out net.Conn, host, reqtype string) {
+		defer wg.Done()
+		io.Copy(in, out)
+		log.Println(in.RemoteAddr(), "=="+reqtype+"=>", host, "已完成")
+	}(wg, conn, pconn, to, cmd.reqtype)
+
+	func(wg sync.WaitGroup, in net.Conn, out net.Conn, host, reqtype string) {
+		defer wg.Done()
+		io.Copy(in, out)
+		log.Println(out.RemoteAddr(), "<="+reqtype+"==", host, "已完成")
+	}(wg, pconn, conn, to, cmd.reqtype)
 	wg.Wait()
 }
 
@@ -250,14 +243,6 @@ func encode(data interface{}) ([]byte, error) {
 		return nil, err
 	}
 	return buf.Bytes(), nil
-}
-
-func resend(wg sync.WaitGroup, in net.Conn, out net.Conn) {
-	defer wg.Done()
-	_, err := io.Copy(in, out)
-	if err != nil {
-		log.Println(err)
-	}
 }
 
 type cmd struct {

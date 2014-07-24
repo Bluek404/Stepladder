@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	version = "0.1.5"
+	version = "0.1.6"
 )
 
 func main() {
@@ -71,7 +71,6 @@ func handleConnection(conn net.Conn, key string) {
 	n, err := conn.Read(buf)
 	if err != nil {
 		log.Println(n, err)
-		conn.Close()
 		return
 	}
 
@@ -80,18 +79,15 @@ func handleConnection(conn net.Conn, key string) {
 		_, err = conn.Write([]byte{0})
 		if err != nil {
 			log.Println(err)
-			conn.Close()
 			return
 		}
 	} else {
-		log.Println(conn.RemoteAddr(), "验证失败，对方所使用的key：", handshake.Key)
+		log.Println(conn.RemoteAddr(), "验证失败，对方所使用的key：", string(buf[:n]))
 		_, err = conn.Write([]byte{1})
 		if err != nil {
 			log.Println(err)
-			conn.Close()
 			return
 		}
-		conn.Close()
 		return
 	}
 
@@ -100,7 +96,6 @@ func handleConnection(conn net.Conn, key string) {
 	n, err = conn.Read(buf)
 	if err != nil {
 		log.Println(n, err)
-		conn.Close()
 		return
 	}
 
@@ -108,26 +103,33 @@ func handleConnection(conn net.Conn, key string) {
 	err = decode(buf[:n], &handshake)
 	if err != nil {
 		log.Println(err)
-		conn.Close()
 		return
 	}
 
-	log.Println(conn.RemoteAddr(), handshake.Reqtype, handshake.Url)
+	log.Println(conn.RemoteAddr(), "=="+handshake.Reqtype+"=>", handshake.Url)
 
 	//connect
 	pconn, err := net.Dial(handshake.Reqtype, handshake.Url)
 	if err != nil {
 		log.Println(err)
-		conn.Close()
 		return
 	}
 	defer pconn.Close()
 
 	var wg sync.WaitGroup
 
-	wg.Add(2)
-	go resend(wg, conn, pconn)
-	go resend(wg, pconn, conn)
+	wg.Add(1)
+	go func(wg sync.WaitGroup, in net.Conn, out net.Conn, host, reqtype string) {
+		defer wg.Done()
+		io.Copy(in, out)
+		log.Println(in.RemoteAddr(), "=="+reqtype+"=>", host, "已完成")
+	}(wg, conn, pconn, handshake.Url, handshake.Reqtype)
+
+	func(wg sync.WaitGroup, in net.Conn, out net.Conn, host, reqtype string) {
+		defer wg.Done()
+		io.Copy(in, out)
+		log.Println(out.RemoteAddr(), "<="+reqtype+"==", host, "已完成")
+	}(wg, pconn, conn, handshake.Url, handshake.Reqtype)
 	wg.Wait()
 }
 
@@ -135,14 +137,6 @@ func decode(data []byte, to interface{}) error {
 	buf := bytes.NewBuffer(data)
 	dec := gob.NewDecoder(buf)
 	return dec.Decode(to)
-}
-
-func resend(wg sync.WaitGroup, in net.Conn, out net.Conn) {
-	defer wg.Done()
-	_, err := io.Copy(in, out)
-	if err != nil {
-		log.Println(err)
-	}
 }
 
 type Handshake struct {
