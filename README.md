@@ -16,19 +16,19 @@ Stepladder
 
 **客户端：**
 
-  1. 下载
+  1. 点击按钮下载客户端[![Gobuild Download](http://beta.gobuild.io/badge/github.com/Bluek404/Stepladder/client/download.png)](http://beta.gobuild.io/github.com/Bluek404/Stepladder/client)
 
-  2. 修改*client*文件夹里的`client.ini`的配置
+  2. 修改`client.ini`的配置
 
-  3. 把*client*文件夹里的东西放到你需要代理的客户端（你的电脑）
+  3. 把程序和`client.ini`放到你需要代理的客户端（你的电脑）
 
 **服务端：**
 
-  1. 下载
+  1. 点击按钮下载服务端[![Gobuild Download](http://beta.gobuild.io/badge/github.com/Bluek404/Stepladder/server/download.png)](http://beta.gobuild.io/github.com/Bluek404/Stepladder/server)
 
-  4. 修改*server*文件夹里的`server.ini`的配置
+  4. 修改`server.ini`的配置
 
-  2. 把*server*文件夹里的东西放到服务端（必须是不受GFW限制的服务器）
+  2. 把程序和`server.ini`放到服务端（必须是不受GFW限制的服务器）
 
   3. 在服务器上创建证书  
   `openssl genrsa -out key.pem 2048`  
