@@ -1,0 +1,10 @@
+filesets:
+  includes:
+  - README.md
+  - LICENSE
+  excludes:
+  - .*.go
+settings:
+  targetdir: "client"
+  addopts: ""
+  yaml"cgoenable": false
