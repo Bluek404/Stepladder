@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	version = "0.1.7"
+	version = "0.1.8"
 
 	verSocks5 = 0x05
 
@@ -36,18 +36,20 @@ const (
 func main() {
 	//log.SetFlags(log.Lshortfile)//debug时开启
 
-	config, err := goconfig.LoadConfigFile("client.ini")
+	cfg, err := goconfig.LoadConfigFile("client.ini")
 	if err != nil {
 		log.Println(err)
 		return
 	}
 
 	var (
-		port       = config.MustValue("client", "port", "7071")
-		key        = config.MustValue("client", "key", "EbzHvwg8BVYz9Rv3")
-		serverHost = config.MustValue("server", "host", "127.0.0.1")
-		serverPort = config.MustValue("server", "port", "8081")
+		port       = cfg.MustValue("client", "port", "7071")
+		key        = cfg.MustValue("client", "key", "EbzHvwg8BVYz9Rv3")
+		serverHost = cfg.MustValue("server", "host", "127.0.0.1")
+		serverPort = cfg.MustValue("server", "port", "8081")
 	)
+
+	goconfig.SaveConfigFile(cfg, "client.ini")
 
 	log.Println("|>>>>>>>>>>>>>>>|<<<<<<<<<<<<<<<|")
 	log.Println("程序版本：" + version)
@@ -81,22 +83,30 @@ func handleConnection(conn net.Conn, key, serverHost, serverPort string) {
 	err = read(conn)
 	if err != nil {
 		log.Println(err)
+		conn.Close()
 		return
 	}
 
 	//send echo
 	buf := []byte{5, 0}
-	conn.Write(buf[:])
+	_, err = conn.Write(buf)
+	if err != nil {
+		log.Println(err)
+		conn.Close()
+		return
+	}
 
 	var cmd cmd
 	_, err = cmd.ReadFrom(conn)
 	if err != nil {
 		log.Println(err)
+		conn.Close()
 		return
 	}
 
 	if cmd.cmd != cmdConnect {
 		log.Println("Error:", cmd.cmd)
+		conn.Close()
 		return
 	}
 
@@ -111,6 +121,7 @@ func handleConnection(conn net.Conn, key, serverHost, serverPort string) {
 	pconn, err := tls.Dial("tcp", serverHost+":"+serverPort, conf)
 	if err != nil {
 		log.Println(err)
+		conn.Close()
 		return
 	}
 
@@ -118,6 +129,8 @@ func handleConnection(conn net.Conn, key, serverHost, serverPort string) {
 	_, err = pconn.Write([]byte(key))
 	if err != nil {
 		log.Println(err)
+		conn.Close()
+		pconn.Close()
 		return
 	}
 
@@ -126,10 +139,14 @@ func handleConnection(conn net.Conn, key, serverHost, serverPort string) {
 	n, err := pconn.Read(buf)
 	if err != nil {
 		log.Println(n, err)
+		conn.Close()
+		pconn.Close()
 		return
 	}
 	if buf[0] != 0 {
 		log.Println("服务端验证失败")
+		conn.Close()
+		pconn.Close()
 		return
 	}
 
@@ -140,12 +157,16 @@ func handleConnection(conn net.Conn, key, serverHost, serverPort string) {
 	})
 	if err != nil {
 		log.Println(err)
+		conn.Close()
+		pconn.Close()
 		return
 	}
 
 	_, err = pconn.Write(enc)
 	if err != nil {
 		log.Println(err)
+		conn.Close()
+		pconn.Close()
 		return
 	}
 
@@ -158,6 +179,8 @@ func handleConnection(conn net.Conn, key, serverHost, serverPort string) {
 	host, port, err := net.SplitHostPort(pconn.LocalAddr().String())
 	if err != nil {
 		log.Println(err)
+		conn.Close()
+		pconn.Close()
 		return
 	}
 
@@ -173,12 +196,16 @@ func handleConnection(conn net.Conn, key, serverHost, serverPort string) {
 	prt, err := strconv.Atoi(port)
 	if err != nil {
 		log.Println(err)
+		conn.Close()
+		pconn.Close()
 		return
 	}
 	r.bnd_port = uint16(prt)
 
 	if _, err = r.WriteTo(conn); err != nil {
 		log.Println(err)
+		conn.Close()
+		pconn.Close()
 		return
 	}
 

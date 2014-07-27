@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	version = "0.1.7"
+	version = "0.1.8"
 )
 
 func main() {
@@ -40,8 +40,8 @@ func main() {
 		return
 	}
 
-	config := &tls.Config{Certificates: []tls.Certificate{cer}}
-	ln, err := tls.Listen("tcp", ":"+port, config)
+	conf := &tls.Config{Certificates: []tls.Certificate{cer}}
+	ln, err := tls.Listen("tcp", ":"+port, conf)
 	if err != nil {
 		log.Println(err)
 		return
@@ -68,6 +68,7 @@ func handleConnection(conn net.Conn, key string) {
 	n, err := conn.Read(buf)
 	if err != nil {
 		log.Println(n, err)
+		conn.Close()
 		return
 	}
 
@@ -76,6 +77,7 @@ func handleConnection(conn net.Conn, key string) {
 		_, err = conn.Write([]byte{0})
 		if err != nil {
 			log.Println(err)
+			conn.Close()
 			return
 		}
 	} else {
@@ -83,8 +85,10 @@ func handleConnection(conn net.Conn, key string) {
 		_, err = conn.Write([]byte{1})
 		if err != nil {
 			log.Println(err)
+			conn.Close()
 			return
 		}
+		conn.Close()
 		return
 	}
 
@@ -93,6 +97,7 @@ func handleConnection(conn net.Conn, key string) {
 	n, err = conn.Read(buf)
 	if err != nil {
 		log.Println(n, err)
+		conn.Close()
 		return
 	}
 
@@ -100,6 +105,7 @@ func handleConnection(conn net.Conn, key string) {
 	err = decode(buf[:n], &handshake)
 	if err != nil {
 		log.Println(err)
+		conn.Close()
 		return
 	}
 
@@ -109,6 +115,7 @@ func handleConnection(conn net.Conn, key string) {
 	pconn, err := net.Dial(handshake.Reqtype, handshake.Url)
 	if err != nil {
 		log.Println(err)
+		conn.Close()
 		return
 	}
 
