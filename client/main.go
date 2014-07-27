@@ -49,8 +49,6 @@ func main() {
 		serverPort = cfg.MustValue("server", "port", "8081")
 	)
 
-	goconfig.SaveConfigFile(cfg, "client.ini")
-
 	log.Println("|>>>>>>>>>>>>>>>|<<<<<<<<<<<<<<<|")
 	log.Println("程序版本：" + version)
 	log.Println("代理端口：" + port)
