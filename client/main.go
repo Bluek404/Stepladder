@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	version = "0.1.8"
+	version = "0.1.9"
 
 	verSocks5 = 0x05
 
@@ -38,16 +38,27 @@ func main() {
 
 	cfg, err := goconfig.LoadConfigFile("client.ini")
 	if err != nil {
-		log.Println(err)
-		return
+		log.Println("配置文件加载失败，自动重置配置文件：", err)
+		cfg, err = goconfig.LoadFromData([]byte{})
+		if err != nil {
+			log.Println(err)
+			return
+		}
 	}
 
 	var (
-		port       = cfg.MustValue("client", "port", "7071")
-		key        = cfg.MustValue("client", "key", "EbzHvwg8BVYz9Rv3")
-		serverHost = cfg.MustValue("server", "host", "127.0.0.1")
-		serverPort = cfg.MustValue("server", "port", "8081")
+		port, ok1       = cfg.MustValueSet("client", "port", "7071")
+		key, ok2        = cfg.MustValueSet("client", "key", "EbzHvwg8BVYz9Rv3")
+		serverHost, ok3 = cfg.MustValueSet("server", "host", "127.0.0.1")
+		serverPort, ok4 = cfg.MustValueSet("server", "port", "8081")
 	)
+
+	if ok1 == true || ok2 == true || ok3 == true || ok4 == true {
+		err = goconfig.SaveConfigFile(cfg, "client.ini")
+		if err != nil {
+			log.Println("配置文件保存失败：", err)
+		}
+	}
 
 	log.Println("|>>>>>>>>>>>>>>>|<<<<<<<<<<<<<<<|")
 	log.Println("程序版本：" + version)
