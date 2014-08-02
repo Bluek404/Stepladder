@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	version = "0.1.9"
+	version = "0.2.0"
 )
 
 func main() {
@@ -74,8 +74,8 @@ func handleConnection(conn net.Conn, key string) {
 
 	var handshake Handshake
 
-	//读取客户端发送的key
-	buf := make([]byte, 100)
+	//读取客户端发送数据
+	buf := make([]byte, 512)
 	n, err := conn.Read(buf)
 	if err != nil {
 		log.Println(n, err)
@@ -83,8 +83,16 @@ func handleConnection(conn net.Conn, key string) {
 		return
 	}
 
+	//对数据解码
+	err = decode(buf[:n], &handshake)
+	if err != nil {
+		log.Println(err)
+		conn.Close()
+		return
+	}
+
 	//验证key
-	if string(buf[:n]) == key {
+	if handshake.Key == key {
 		_, err = conn.Write([]byte{0})
 		if err != nil {
 			log.Println(err)
@@ -99,23 +107,6 @@ func handleConnection(conn net.Conn, key string) {
 			conn.Close()
 			return
 		}
-		conn.Close()
-		return
-	}
-
-	//读取客户端发送数据
-	buf = make([]byte, 100)
-	n, err = conn.Read(buf)
-	if err != nil {
-		log.Println(n, err)
-		conn.Close()
-		return
-	}
-
-	//对数据解码
-	err = decode(buf[:n], &handshake)
-	if err != nil {
-		log.Println(err)
 		conn.Close()
 		return
 	}
@@ -154,4 +145,5 @@ func decode(data []byte, to interface{}) error {
 type Handshake struct {
 	Url     string
 	Reqtype string
+	Key     string
 }

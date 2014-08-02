@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	version = "0.1.9"
+	version = "0.2.0"
 
 	verSocks5 = 0x05
 
@@ -134,8 +134,20 @@ func handleConnection(conn net.Conn, key, serverHost, serverPort string) {
 		return
 	}
 
-	//发送验证key
-	_, err = pconn.Write([]byte(key))
+	//编码
+	enc, err := encode(&Handshake{
+		Reqtype: cmd.reqtype,
+		Url:     to,
+		Key:     key,
+	})
+	if err != nil {
+		log.Println(err)
+		conn.Close()
+		pconn.Close()
+		return
+	}
+
+	_, err = pconn.Write(enc)
 	if err != nil {
 		log.Println(err)
 		conn.Close()
@@ -154,26 +166,6 @@ func handleConnection(conn net.Conn, key, serverHost, serverPort string) {
 	}
 	if buf[0] != 0 {
 		log.Println("服务端验证失败")
-		conn.Close()
-		pconn.Close()
-		return
-	}
-
-	//编码
-	enc, err := encode(&Handshake{
-		Reqtype: cmd.reqtype,
-		Url:     to,
-	})
-	if err != nil {
-		log.Println(err)
-		conn.Close()
-		pconn.Close()
-		return
-	}
-
-	_, err = pconn.Write(enc)
-	if err != nil {
-		log.Println(err)
 		conn.Close()
 		pconn.Close()
 		return
@@ -388,4 +380,5 @@ func (c *cmdResp) WriteTo(w io.Writer) (n int64, err error) {
 type Handshake struct {
 	Url     string
 	Reqtype string
+	Key     string
 }
