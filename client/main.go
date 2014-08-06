@@ -53,7 +53,7 @@ func main() {
 		serverPort, ok4 = cfg.MustValueSet("server", "port", "8081")
 	)
 
-	if ok1 == true || ok2 == true || ok3 == true || ok4 == true {
+	if ok1 || ok2 || ok3 || ok4 {
 		err = goconfig.SaveConfigFile(cfg, "client.ini")
 		if err != nil {
 			log.Println("配置文件保存失败：", err)

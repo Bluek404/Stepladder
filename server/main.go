@@ -32,7 +32,7 @@ func main() {
 		port, ok2 = cfg.MustValueSet("server", "port", "8081")
 	)
 
-	if ok1 == true || ok2 == true {
+	if ok1 || ok2 {
 		err = goconfig.SaveConfigFile(cfg, "server.ini")
 		if err != nil {
 			log.Println("配置文件保存失败：", err)
