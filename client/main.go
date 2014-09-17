@@ -3,18 +3,20 @@ package main
 import (
 	"bytes"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/binary"
 	"encoding/gob"
 	"errors"
 	"github.com/Unknwon/goconfig"
 	"io"
+	"io/ioutil"
 	"log"
 	"net"
 	"strconv"
 )
 
 const (
-	version = "0.2.0"
+	version = "0.3.0"
 
 	verSocks5 = 0x05
 
@@ -34,8 +36,22 @@ const (
 )
 
 func main() {
-	//log.SetFlags(log.Lshortfile)//debug时开启
+	//log.SetFlags(log.Lshortfile) //debug时开启
 
+	//读取证书文件
+	rootPEM, err := ioutil.ReadFile("cert.pem")
+	if err != nil {
+		log.Println("读取 cert.pem 出错：", err, "请检查文件是否存在")
+		return
+	}
+	roots := x509.NewCertPool()
+	ok := roots.AppendCertsFromPEM(rootPEM)
+	if !ok {
+		log.Println("证书分析失败，请证书文件是否正确")
+		return
+	}
+
+	//加载配置文件
 	cfg, err := goconfig.LoadConfigFile("client.ini")
 	if err != nil {
 		log.Println("配置文件加载失败，自动重置配置文件：", err)
@@ -53,19 +69,13 @@ func main() {
 		serverPort, ok4 = cfg.MustValueSet("server", "port", "8081")
 	)
 
+	//如果缺少配置则保存为默认配置
 	if ok1 || ok2 || ok3 || ok4 {
 		err = goconfig.SaveConfigFile(cfg, "client.ini")
 		if err != nil {
 			log.Println("配置文件保存失败：", err)
 		}
 	}
-
-	log.Println("|>>>>>>>>>>>>>>>|<<<<<<<<<<<<<<<|")
-	log.Println("程序版本：" + version)
-	log.Println("代理端口：" + port)
-	log.Println("Key：" + key)
-	log.Println("服务器地址：" + serverHost + ":" + serverPort)
-	log.Println("|>>>>>>>>>>>>>>>|<<<<<<<<<<<<<<<|")
 
 	ln, err := net.Listen("tcp", ":"+port)
 	if err != nil {
@@ -74,17 +84,24 @@ func main() {
 	}
 	defer ln.Close()
 
+	log.Println("|>>>>>>>>>>>>>>>|<<<<<<<<<<<<<<<|")
+	log.Println("程序版本：" + version)
+	log.Println("代理端口：" + port)
+	log.Println("Key：" + key)
+	log.Println("服务器地址：" + serverHost + ":" + serverPort)
+	log.Println("|>>>>>>>>>>>>>>>|<<<<<<<<<<<<<<<|")
+
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
 			log.Println(err)
 			continue
 		}
-		go handleConnection(conn, key, serverHost, serverPort)
+		go handleConnection(conn, key, serverHost, serverPort, roots)
 	}
 }
 
-func handleConnection(conn net.Conn, key, serverHost, serverPort string) {
+func handleConnection(conn net.Conn, key, serverHost, serverPort string, roots *x509.CertPool) {
 	log.Println("[+]", conn.RemoteAddr())
 
 	//recv hello
@@ -122,12 +139,10 @@ func handleConnection(conn net.Conn, key, serverHost, serverPort string) {
 	to := cmd.DestAddress()
 	log.Println(conn.RemoteAddr(), "=="+cmd.reqtype+"=>", to)
 
-	conf := &tls.Config{
-		InsecureSkipVerify: true,
-	}
-
 	//链接服务器
-	pconn, err := tls.Dial("tcp", serverHost+":"+serverPort, conf)
+	pconn, err := tls.Dial("tcp", serverHost+":"+serverPort, &tls.Config{
+		RootCAs: roots,
+	})
 	if err != nil {
 		log.Println(err)
 		conn.Close()

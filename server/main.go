@@ -11,12 +11,13 @@ import (
 )
 
 const (
-	version = "0.2.0"
+	version = "0.3.0"
 )
 
 func main() {
-	//log.SetFlags(log.Lshortfile)//debug时开启
+	//log.SetFlags(log.Lshortfile) //debug时开启
 
+	//读取配置文件
 	cfg, err := goconfig.LoadConfigFile("server.ini")
 	if err != nil {
 		log.Println("配置文件加载失败，自动重置配置文件", err)
@@ -32,6 +33,7 @@ func main() {
 		port, ok2 = cfg.MustValueSet("server", "port", "8081")
 	)
 
+	//如果缺少配置则保存为默认配置
 	if ok1 || ok2 {
 		err = goconfig.SaveConfigFile(cfg, "server.ini")
 		if err != nil {
@@ -39,25 +41,29 @@ func main() {
 		}
 	}
 
-	log.Println("|>>>>>>>>>>>>>>>|<<<<<<<<<<<<<<<|")
-	log.Println("程序版本：" + version)
-	log.Println("监听端口：" + port)
-	log.Println("Key：" + key)
-	log.Println("|>>>>>>>>>>>>>>>|<<<<<<<<<<<<<<<|")
-
+	//读取公私钥
 	cer, err := tls.LoadX509KeyPair("cert.pem", "key.pem")
 	if err != nil {
 		log.Println(err)
 		return
 	}
 
-	conf := &tls.Config{Certificates: []tls.Certificate{cer}}
-	ln, err := tls.Listen("tcp", ":"+port, conf)
+	//监听端口
+	ln, err := tls.Listen("tcp", ":"+port, &tls.Config{
+		Certificates: []tls.Certificate{cer},
+	})
 	if err != nil {
 		log.Println(err)
 		return
 	}
 	defer ln.Close()
+
+	//加载完成后输出配置信息
+	log.Println("|>>>>>>>>>>>>>>>|<<<<<<<<<<<<<<<|")
+	log.Println("程序版本：" + version)
+	log.Println("监听端口：" + port)
+	log.Println("Key：" + key)
+	log.Println("|>>>>>>>>>>>>>>>|<<<<<<<<<<<<<<<|")
 
 	for {
 		conn, err := ln.Accept()
