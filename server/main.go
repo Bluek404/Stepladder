@@ -4,14 +4,20 @@ import (
 	"bytes"
 	"crypto/tls"
 	"encoding/gob"
+	"errors"
 	"github.com/Unknwon/goconfig"
 	"io"
 	"log"
 	"net"
+	"strings"
+	"time"
 )
 
 const (
-	version = "0.3.0"
+	version = "0.4.0"
+
+	login      = 0
+	connection = 1
 )
 
 func main() {
@@ -29,7 +35,7 @@ func main() {
 	}
 
 	var (
-		key, ok1  = cfg.MustValueSet("client", "key", "EbzHvwg8BVYz9Rv3")
+		key, ok1  = cfg.MustValueSet("client", "key", "eGauUecvzS05U5DIsxAN4n2hadmRTZGBqNd2zsCkrvwEBbqoITj36mAMk4Unw6Pr")
 		port, ok2 = cfg.MustValueSet("server", "port", "8081")
 	)
 
@@ -58,6 +64,11 @@ func main() {
 	}
 	defer ln.Close()
 
+	s := &serve{
+		key:     key,
+		clients: make(map[string]interface{}),
+	}
+
 	//加载完成后输出配置信息
 	log.Println("|>>>>>>>>>>>>>>>|<<<<<<<<<<<<<<<|")
 	log.Println("程序版本：" + version)
@@ -71,17 +82,23 @@ func main() {
 			log.Println(err)
 			continue
 		}
-		go handleConnection(conn, key)
+		go s.handleConnection(conn)
 	}
 }
 
-func handleConnection(conn net.Conn, key string) {
+type serve struct {
+	key     string
+	clients map[string]interface{}
+	keepit  map[string]chan bool
+}
+
+func (s *serve) handleConnection(conn net.Conn) {
 	log.Println("[+]", conn.RemoteAddr())
 
 	var handshake Handshake
 
 	//读取客户端发送数据
-	buf := make([]byte, 512)
+	buf := make([]byte, 1024)
 	n, err := conn.Read(buf)
 	if err != nil {
 		log.Println(n, err)
@@ -97,49 +114,117 @@ func handleConnection(conn net.Conn, key string) {
 		return
 	}
 
-	//验证key
-	if handshake.Key == key {
-		_, err = conn.Write([]byte{0})
+	switch handshake.Type {
+	case login:
+		//接受到登录请求，验证key
+		if handshake.Value["key"] == s.key {
+			log.Println("新的客户端加入：", conn.RemoteAddr().String())
+			//验证成功，发送成功信息
+			isOK(conn)
+
+			//将客户端IP地址添加进客户端列表
+			s.clients[getIP(conn.RemoteAddr().String())] = nil
+
+			defer conn.Close()
+
+			//取消心跳包接收超时
+			conn.SetDeadline(time.Time{})
+
+			//接收心跳包
+			for {
+				buf := make([]byte, 1)
+				_, err = conn.Read(buf)
+				if err != nil {
+					if err == io.EOF {
+						//客户端断开链接，删除客户端IP
+						log.Println("客户端断开链接：", conn.RemoteAddr())
+						delete(s.clients, getIP(conn.RemoteAddr().String()))
+						return
+					}
+					log.Println(err)
+					return
+				}
+				isOK(conn)
+			}
+		} else {
+			//客户端验证失败，输出key并返回失败信息
+			log.Println(conn.RemoteAddr(), "验证失败，对方所使用的key：", string(buf[:n]))
+			isntOK(conn)
+			return
+		}
+	case connection:
+		//验证客户端是否存在
+		err := s.clientOnClientsList(conn)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		//输出信息
+		log.Println(conn.RemoteAddr(), "=="+handshake.Value["reqtype"]+"=>", handshake.Value["url"])
+
+		//connect
+		pconn, err := net.Dial(handshake.Value["reqtype"], handshake.Value["url"])
 		if err != nil {
 			log.Println(err)
 			conn.Close()
 			return
 		}
-	} else {
-		log.Println(conn.RemoteAddr(), "验证失败，对方所使用的key：", string(buf[:n]))
-		_, err = conn.Write([]byte{1})
-		if err != nil {
-			log.Println(err)
+
+		//两个conn互相传输信息
+		go func() {
+			io.Copy(conn, pconn)
 			conn.Close()
-			return
-		}
-		conn.Close()
-		return
+			pconn.Close()
+			log.Println(pconn.RemoteAddr(), "=="+handshake.Value["reqtype"]+"=>", handshake.Value["url"], "[√]")
+		}()
+		go func() {
+			io.Copy(pconn, conn)
+			pconn.Close()
+			conn.Close()
+			log.Println(conn.RemoteAddr(), "<="+handshake.Value["reqtype"]+"==", handshake.Value["url"], "[√]")
+		}()
 	}
+}
 
-	log.Println(conn.RemoteAddr(), "=="+handshake.Reqtype+"=>", handshake.Url)
+func getIP(ip string) string {
+	if strings.Contains(ip, ":") {
+		ip = ip[:strings.Index(ip, ":")]
+	}
+	return ip
+}
 
-	//connect
-	pconn, err := net.Dial(handshake.Reqtype, handshake.Url)
+func (s *serve) clientOnClientsList(conn net.Conn) error {
+	//验证客户端是否存在
+	_, ok := s.clients[getIP(conn.RemoteAddr().String())]
+	if !ok {
+		//客户端不存在，返回错误信息并且关闭链接
+		//输出非法连接者IP
+		isntOK(conn)
+		return errors.New("非法连接： " + conn.RemoteAddr().String())
+	}
+	//客户端存在，返回成功信息
+	isOK(conn)
+	return nil
+}
+
+func isOK(conn net.Conn) {
+	//写入成功信息
+	_, err := conn.Write([]byte{0})
 	if err != nil {
+		//写入成功信息失败，输出错误然后关闭链接
 		log.Println(err)
 		conn.Close()
-		return
 	}
+}
 
-	go func(in net.Conn, out net.Conn, host, reqtype string) {
-		io.Copy(in, out)
-		in.Close()
-		out.Close()
-		log.Println(in.RemoteAddr(), "=="+reqtype+"=>", host, "[√]")
-	}(conn, pconn, handshake.Url, handshake.Reqtype)
-
-	go func(in net.Conn, out net.Conn, host, reqtype string) {
-		io.Copy(in, out)
-		in.Close()
-		out.Close()
-		log.Println(out.RemoteAddr(), "<="+reqtype+"==", host, "[√]")
-	}(pconn, conn, handshake.Url, handshake.Reqtype)
+func isntOK(conn net.Conn) {
+	//写入失败信息并且关闭链接
+	_, err := conn.Write([]byte{1})
+	if err != nil {
+		//写入失败信息失败，输出错误（反正都会关闭链接）
+		log.Println(err)
+	}
+	conn.Close()
 }
 
 func decode(data []byte, to interface{}) error {
@@ -149,7 +234,6 @@ func decode(data []byte, to interface{}) error {
 }
 
 type Handshake struct {
-	Url     string
-	Reqtype string
-	Key     string
+	Type  int
+	Value map[string]string
 }

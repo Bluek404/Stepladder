@@ -13,10 +13,11 @@ import (
 	"log"
 	"net"
 	"strconv"
+	"time"
 )
 
 const (
-	version = "0.3.0"
+	version = "0.4.0"
 
 	verSocks5 = 0x05
 
@@ -33,6 +34,9 @@ const (
 	repSucceeded = 0x00
 
 	rsvReserved = 0x00
+
+	login      = 0
+	connection = 1
 )
 
 func main() {
@@ -64,7 +68,7 @@ func main() {
 
 	var (
 		port, ok1       = cfg.MustValueSet("client", "port", "7071")
-		key, ok2        = cfg.MustValueSet("client", "key", "EbzHvwg8BVYz9Rv3")
+		key, ok2        = cfg.MustValueSet("client", "key", "eGauUecvzS05U5DIsxAN4n2hadmRTZGBqNd2zsCkrvwEBbqoITj36mAMk4Unw6Pr")
 		serverHost, ok3 = cfg.MustValueSet("server", "host", "127.0.0.1")
 		serverPort, ok4 = cfg.MustValueSet("server", "port", "8081")
 	)
@@ -91,17 +95,143 @@ func main() {
 	log.Println("服务器地址：" + serverHost + ":" + serverPort)
 	log.Println("|>>>>>>>>>>>>>>>|<<<<<<<<<<<<<<<|")
 
+	s := &serve{
+		serverHost: serverHost,
+		serverPort: serverPort,
+		key:        key,
+		conf: &tls.Config{
+			RootCAs: roots,
+		},
+	}
+
+	//登录
+	if err = s.handshake(); err != nil {
+		log.Println("与服务器链接失败：", err)
+		return
+	}
+	log.Println("登录成功,服务器连接完毕")
+
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
 			log.Println(err)
 			continue
 		}
-		go handleConnection(conn, key, serverHost, serverPort, roots)
+		go s.handleConnection(conn)
 	}
 }
 
-func handleConnection(conn net.Conn, key, serverHost, serverPort string, roots *x509.CertPool) {
+func read(conn net.Conn) error {
+	methods := make([]byte, 255)
+
+	_, err := recv(methods[:2], 2, conn)
+	if err != nil {
+		return err
+	}
+
+	_, err = recv(methods[:], int(methods[1]), conn)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func recv(buf []byte, m int, conn net.Conn) (n int, err error) {
+	for nn := 0; n < m; {
+		nn, err = conn.Read(buf[n:m])
+		if err != nil && err != io.EOF {
+			return
+		}
+		n += nn
+	}
+	return
+}
+
+func encode(data interface{}) ([]byte, error) {
+	buf := bytes.NewBuffer(nil)
+	enc := gob.NewEncoder(buf)
+	err := enc.Encode(data)
+	if err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+type serve struct {
+	serverHost string
+	serverPort string
+	key        string
+	conf       *tls.Config
+}
+
+func (s *serve) handshake() error {
+	//发送key登录
+	pconn, ok, err := s.send(&Handshake{
+		Type:  login,
+		Value: map[string]string{"key": s.key},
+	})
+	if err != nil {
+		return err
+	}
+
+	//登录失败
+	if !ok {
+		return errors.New("与服务器验证失败，请检查key是否正确")
+	}
+	//发送心跳包
+	go func() {
+		//心跳包发送间隔
+		time.Sleep(time.Minute * 5)
+		_, err := pconn.Write([]byte{0})
+		if err != nil {
+			pconn.Close()
+			log.Println(err)
+			return
+		}
+	}()
+	return nil
+}
+
+//向服务器发送信息，返回信息为 建立的链接+是否操作成功+错误
+func (s *serve) send(handshake *Handshake) (net.Conn, bool, error) {
+	//建立链接
+	pconn, err := tls.Dial("tcp", s.serverHost+":"+s.serverPort, s.conf)
+	if err != nil {
+		return nil, false, err
+	}
+
+	//编码
+	enc, err := encode(handshake)
+	if err != nil {
+		pconn.Close()
+		return nil, false, err
+	}
+
+	//发送信息
+	_, err = pconn.Write(enc)
+	if err != nil {
+		pconn.Close()
+		return nil, false, err
+	}
+
+	//读取服务端返回信息
+	buf := make([]byte, 1)
+	_, err = pconn.Read(buf)
+	if err != nil {
+		pconn.Close()
+		return nil, false, err
+	}
+
+	//检查服务端是否返回操作成功
+	if buf[0] != 0 {
+		return pconn, false, nil
+	}
+
+	return pconn, true, nil
+}
+
+//处理浏览器发出的请求
+func (s *serve) handleConnection(conn net.Conn) {
 	log.Println("[+]", conn.RemoteAddr())
 
 	//recv hello
@@ -139,50 +269,22 @@ func handleConnection(conn net.Conn, key, serverHost, serverPort string, roots *
 	to := cmd.DestAddress()
 	log.Println(conn.RemoteAddr(), "=="+cmd.reqtype+"=>", to)
 
-	//链接服务器
-	pconn, err := tls.Dial("tcp", serverHost+":"+serverPort, &tls.Config{
-		RootCAs: roots,
+	//与服务端建立链接
+	pconn, ok, err := s.send(&Handshake{
+		Type:  connection,
+		Value: map[string]string{"reqtype": cmd.reqtype, "url": to},
 	})
 	if err != nil {
-		log.Println(err)
 		conn.Close()
+		log.Println("连接服务端失败：", err)
 		return
 	}
 
-	//编码
-	enc, err := encode(&Handshake{
-		Reqtype: cmd.reqtype,
-		Url:     to,
-		Key:     key,
-	})
-	if err != nil {
-		log.Println(err)
-		conn.Close()
+	//检查服务端是否返回成功
+	if !ok {
 		pconn.Close()
-		return
-	}
-
-	_, err = pconn.Write(enc)
-	if err != nil {
-		log.Println(err)
 		conn.Close()
-		pconn.Close()
-		return
-	}
-
-	//读取服务端返回信息
-	buf = make([]byte, 1)
-	n, err := pconn.Read(buf)
-	if err != nil {
-		log.Println(n, err)
-		conn.Close()
-		pconn.Close()
-		return
-	}
-	if buf[0] != 0 {
-		log.Println("服务端验证失败")
-		conn.Close()
-		pconn.Close()
+		log.Println("服务端验证失败，可能服务端已经重启，请重新登录")
 		return
 	}
 
@@ -238,42 +340,6 @@ func handleConnection(conn net.Conn, key, serverHost, serverPort string, roots *
 		out.Close()
 		log.Println(out.RemoteAddr(), "<="+reqtype+"==", host, "[√]")
 	}(pconn, conn, to, cmd.reqtype)
-}
-
-func read(conn net.Conn) (err error) {
-	methods := make([]byte, 255)
-
-	_, err = recv(methods[:2], 2, conn)
-	if err != nil {
-		return
-	}
-
-	_, err = recv(methods[:], int(methods[1]), conn)
-	if err != nil {
-		return
-	}
-	return
-}
-
-func recv(buf []byte, m int, conn net.Conn) (n int, err error) {
-	for nn := 0; n < m; {
-		nn, err = conn.Read(buf[n:m])
-		if err != nil && err != io.EOF {
-			return
-		}
-		n += nn
-	}
-	return
-}
-
-func encode(data interface{}) ([]byte, error) {
-	buf := bytes.NewBuffer(nil)
-	enc := gob.NewEncoder(buf)
-	err := enc.Encode(data)
-	if err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
 }
 
 type cmd struct {
@@ -393,7 +459,6 @@ func (c *cmdResp) WriteTo(w io.Writer) (n int64, err error) {
 }
 
 type Handshake struct {
-	Url     string
-	Reqtype string
-	Key     string
+	Type  int
+	Value map[string]string
 }
