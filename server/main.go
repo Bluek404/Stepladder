@@ -175,7 +175,7 @@ func (s *serve) handleConnection(conn net.Conn) {
 			io.Copy(conn, pconn)
 			conn.Close()
 			pconn.Close()
-			log.Println(pconn.RemoteAddr(), "=="+handshake.Value["reqtype"]+"=>", handshake.Value["url"], "[√]")
+			log.Println(conn.RemoteAddr(), "=="+handshake.Value["reqtype"]+"=>", handshake.Value["url"], "[√]")
 		}()
 		go func() {
 			io.Copy(pconn, conn)
