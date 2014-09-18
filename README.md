@@ -62,7 +62,7 @@ Stepladder
 
      >`[client]`后面的配置修改：
 
-     >把`EbzHvwg8BVYz9Rv3`修改为和你客户端相同的字符串（不然客户端会提示“验证失败”）
+     >把`eGauUecvzS05U5DIsxAN4n2hadmRTZGBqNd2zsCkrvwEBbqoITj36mAMk4Unw6Pr`修改为和你客户端相同的字符串（不然客户端会提示“验证失败”）
 
      ------------
 
