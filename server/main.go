@@ -148,7 +148,7 @@ func (s *serve) handleConnection(conn net.Conn) {
 			}
 		} else {
 			//客户端验证失败，输出key并返回失败信息
-			log.Println(conn.RemoteAddr(), "验证失败，对方所使用的key：", string(buf[:n]))
+			log.Println(conn.RemoteAddr(), "验证失败，对方所使用的key：", handshake.Value["key"])
 			isntOK(conn)
 			return
 		}
