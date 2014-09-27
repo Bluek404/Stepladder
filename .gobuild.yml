@@ -1,0 +1,18 @@
+author: ""
+description: "climb over the wall"
+filesets:
+  includes:
+          - README.md
+          - LICENSE
+          - ladder
+  excludes:
+          - \.git
+settings:
+  targetdir: ladder
+  outfiles: ["ladder/client", "ladder/server"]
+  build: |
+          mkdir ladder
+          cp client/client.ini ladder/
+          cp server/server.ini ladder/
+          (cd client && go get -v)
+          (cd server && go get -v)
