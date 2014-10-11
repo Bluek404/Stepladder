@@ -14,16 +14,16 @@ import (
 )
 
 const (
-	version = "0.4.0"
+	version = "0.4.1"
 
 	login      = 0
 	connection = 1
 )
 
 func main() {
-	//log.SetFlags(log.Lshortfile) //debug时开启
+	//log.SetFlags(log.Lshortfile) // debug时开启
 
-	//读取配置文件
+	// 读取配置文件
 	cfg, err := goconfig.LoadConfigFile("server.ini")
 	if err != nil {
 		log.Println("配置文件加载失败，自动重置配置文件", err)
@@ -39,7 +39,7 @@ func main() {
 		port, ok2 = cfg.MustValueSet("server", "port", "8081")
 	)
 
-	//如果缺少配置则保存为默认配置
+	// 如果缺少配置则保存为默认配置
 	if ok1 || ok2 {
 		err = goconfig.SaveConfigFile(cfg, "server.ini")
 		if err != nil {
@@ -47,14 +47,14 @@ func main() {
 		}
 	}
 
-	//读取公私钥
+	// 读取公私钥
 	cer, err := tls.LoadX509KeyPair("cert.pem", "key.pem")
 	if err != nil {
 		log.Println(err)
 		return
 	}
 
-	//监听端口
+	// 监听端口
 	ln, err := tls.Listen("tcp", ":"+port, &tls.Config{
 		Certificates: []tls.Certificate{cer},
 	})
@@ -69,7 +69,7 @@ func main() {
 		clients: make(map[string]interface{}),
 	}
 
-	//加载完成后输出配置信息
+	// 加载完成后输出配置信息
 	log.Println("|>>>>>>>>>>>>>>>|<<<<<<<<<<<<<<<|")
 	log.Println("程序版本：" + version)
 	log.Println("监听端口：" + port)
@@ -97,7 +97,7 @@ func (s *serve) handleConnection(conn net.Conn) {
 
 	var handshake Handshake
 
-	//读取客户端发送数据
+	// 读取客户端发送数据
 	buf := make([]byte, 1024)
 	n, err := conn.Read(buf)
 	if err != nil {
@@ -106,7 +106,7 @@ func (s *serve) handleConnection(conn net.Conn) {
 		return
 	}
 
-	//对数据解码
+	// 对数据解码
 	err = decode(buf[:n], &handshake)
 	if err != nil {
 		log.Println(err)
@@ -116,53 +116,48 @@ func (s *serve) handleConnection(conn net.Conn) {
 
 	switch handshake.Type {
 	case login:
-		//接受到登录请求，验证key
+		// 接受到登录请求，验证key
 		if handshake.Value["key"] == s.key {
 			log.Println("新的客户端加入：", conn.RemoteAddr().String())
 			//验证成功，发送成功信息
 			isOK(conn)
 
-			//将客户端IP地址添加进客户端列表
+			// 将客户端IP地址添加进客户端列表
 			s.clients[getIP(conn.RemoteAddr().String())] = nil
 
 			defer conn.Close()
 
-			//取消心跳包接收超时
-			conn.SetDeadline(time.Time{})
-
-			//接收心跳包
+			// 接收心跳包
 			for {
+				// 设置心跳包超时时间
+				conn.SetDeadline(time.Now().Add(time.Second * 65))
 				buf := make([]byte, 1)
 				_, err = conn.Read(buf)
 				if err != nil {
-					if err == io.EOF {
-						//客户端断开链接，删除客户端IP
-						log.Println("客户端断开链接：", conn.RemoteAddr())
-						delete(s.clients, getIP(conn.RemoteAddr().String()))
-						return
-					}
-					log.Println(err)
+					// 客户端断开链接，删除客户端IP
+					log.Println("客户端断开链接：", err)
+					delete(s.clients, getIP(conn.RemoteAddr().String()))
 					return
 				}
 				isOK(conn)
 			}
 		} else {
-			//客户端验证失败，输出key并返回失败信息
+			// 客户端验证失败，输出key并返回失败信息
 			log.Println(conn.RemoteAddr(), "验证失败，对方所使用的key：", handshake.Value["key"])
 			isntOK(conn)
 			return
 		}
 	case connection:
-		//验证客户端是否存在
+		// 验证客户端是否存在
 		err := s.clientOnClientsList(conn)
 		if err != nil {
 			log.Println(err)
 			return
 		}
-		//输出信息
+		// 输出信息
 		log.Println(conn.RemoteAddr(), "=="+handshake.Value["reqtype"]+"=>", handshake.Value["url"])
 
-		//connect
+		// connect
 		pconn, err := net.Dial(handshake.Value["reqtype"], handshake.Value["url"])
 		if err != nil {
 			log.Println(err)
@@ -170,7 +165,7 @@ func (s *serve) handleConnection(conn net.Conn) {
 			return
 		}
 
-		//两个conn互相传输信息
+		// 两个conn互相传输信息
 		go func() {
 			io.Copy(conn, pconn)
 			conn.Close()
@@ -193,16 +188,16 @@ func getIP(ip string) string {
 	return ip
 }
 
+// 用于验证客户端是否存在
 func (s *serve) clientOnClientsList(conn net.Conn) error {
-	//验证客户端是否存在
 	_, ok := s.clients[getIP(conn.RemoteAddr().String())]
 	if !ok {
-		//客户端不存在，返回错误信息并且关闭链接
-		//输出非法连接者IP
+		// 客户端不存在，返回错误信息并且关闭链接
+		// 输出非法连接者IP
 		isntOK(conn)
 		return errors.New("非法连接： " + conn.RemoteAddr().String())
 	}
-	//客户端存在，返回成功信息
+	// 客户端存在，返回成功信息
 	isOK(conn)
 	return nil
 }
@@ -227,6 +222,7 @@ func isntOK(conn net.Conn) {
 	conn.Close()
 }
 
+// 数据解码
 func decode(data []byte, to interface{}) error {
 	buf := bytes.NewBuffer(data)
 	dec := gob.NewDecoder(buf)

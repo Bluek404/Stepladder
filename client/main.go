@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	version = "0.4.0"
+	version = "0.4.1"
 
 	verSocks5 = 0x05
 
@@ -39,10 +39,14 @@ const (
 	connection = 1
 )
 
-func main() {
-	//log.SetFlags(log.Lshortfile) //debug时开启
+var (
+	relogin bool // 用于判断是否正在重新登录中
+)
 
-	//读取证书文件
+func main() {
+	//log.SetFlags(log.Lshortfile) // debug时开启
+
+	// 读取证书文件
 	rootPEM, err := ioutil.ReadFile("cert.pem")
 	if err != nil {
 		log.Println("读取 cert.pem 出错：", err, "请检查文件是否存在")
@@ -55,7 +59,7 @@ func main() {
 		return
 	}
 
-	//加载配置文件
+	// 加载配置文件
 	cfg, err := goconfig.LoadConfigFile("client.ini")
 	if err != nil {
 		log.Println("配置文件加载失败，自动重置配置文件：", err)
@@ -73,7 +77,7 @@ func main() {
 		serverPort, ok4 = cfg.MustValueSet("server", "port", "8081")
 	)
 
-	//如果缺少配置则保存为默认配置
+	// 如果缺少配置则保存为默认配置
 	if ok1 || ok2 || ok3 || ok4 {
 		err = goconfig.SaveConfigFile(cfg, "client.ini")
 		if err != nil {
@@ -104,7 +108,7 @@ func main() {
 		},
 	}
 
-	//登录
+	// 登录
 	if err = s.handshake(); err != nil {
 		log.Println("与服务器链接失败：", err)
 		return
@@ -165,7 +169,7 @@ type serve struct {
 }
 
 func (s *serve) handshake() error {
-	//发送key登录
+	// 发送key登录
 	pconn, ok, err := s.send(&Handshake{
 		Type:  login,
 		Value: map[string]string{"key": s.key},
@@ -174,47 +178,49 @@ func (s *serve) handshake() error {
 		return err
 	}
 
-	//登录失败
+	// 登录失败
 	if !ok {
 		return errors.New("与服务器验证失败，请检查key是否正确")
 	}
-	//发送心跳包
+	// 发送心跳包
 	go func() {
-		//心跳包发送间隔
-		time.Sleep(time.Minute * 5)
-		_, err := pconn.Write([]byte{0})
-		if err != nil {
-			pconn.Close()
-			log.Println(err)
-			return
+		for {
+			// 心跳包发送间隔
+			time.Sleep(time.Second * 60)
+			_, err := pconn.Write([]byte{0})
+			if err != nil {
+				pconn.Close()
+				log.Println("与服务端断开链接：", err)
+				return
+			}
 		}
 	}()
 	return nil
 }
 
-//向服务器发送信息，返回信息为 建立的链接+是否操作成功+错误
+// 向服务器发送信息，返回信息为 建立的链接+是否操作成功+错误
 func (s *serve) send(handshake *Handshake) (net.Conn, bool, error) {
-	//建立链接
+	// 建立链接
 	pconn, err := tls.Dial("tcp", s.serverHost+":"+s.serverPort, s.conf)
 	if err != nil {
 		return nil, false, err
 	}
 
-	//编码
+	// 编码
 	enc, err := encode(handshake)
 	if err != nil {
 		pconn.Close()
 		return nil, false, err
 	}
 
-	//发送信息
+	// 发送信息
 	_, err = pconn.Write(enc)
 	if err != nil {
 		pconn.Close()
 		return nil, false, err
 	}
 
-	//读取服务端返回信息
+	// 读取服务端返回信息
 	buf := make([]byte, 1)
 	_, err = pconn.Read(buf)
 	if err != nil {
@@ -222,7 +228,7 @@ func (s *serve) send(handshake *Handshake) (net.Conn, bool, error) {
 		return nil, false, err
 	}
 
-	//检查服务端是否返回操作成功
+	// 检查服务端是否返回操作成功
 	if buf[0] != 0 {
 		return pconn, false, nil
 	}
@@ -230,11 +236,11 @@ func (s *serve) send(handshake *Handshake) (net.Conn, bool, error) {
 	return pconn, true, nil
 }
 
-//处理浏览器发出的请求
+// 处理浏览器发出的请求
 func (s *serve) handleConnection(conn net.Conn) {
 	log.Println("[+]", conn.RemoteAddr())
 
-	//recv hello
+	// recv hello
 	var err error
 	err = read(conn)
 	if err != nil {
@@ -243,7 +249,7 @@ func (s *serve) handleConnection(conn net.Conn) {
 		return
 	}
 
-	//send echo
+	// send echo
 	buf := []byte{5, 0}
 	_, err = conn.Write(buf)
 	if err != nil {
@@ -269,7 +275,7 @@ func (s *serve) handleConnection(conn net.Conn) {
 	to := cmd.DestAddress()
 	log.Println(conn.RemoteAddr(), "=="+cmd.reqtype+"=>", to)
 
-	//与服务端建立链接
+	// 与服务端建立链接
 	pconn, ok, err := s.send(&Handshake{
 		Type:  connection,
 		Value: map[string]string{"reqtype": cmd.reqtype, "url": to},
@@ -280,11 +286,15 @@ func (s *serve) handleConnection(conn net.Conn) {
 		return
 	}
 
-	//检查服务端是否返回成功
+	// 检查服务端是否返回成功
 	if !ok {
 		pconn.Close()
 		conn.Close()
-		log.Println("服务端验证失败，可能服务端已经重启，请重新登录")
+		// 检查是否已经在重新登录，如果没有则重新登录
+		if !relogin {
+			relogin = true
+			s.reLogin()
+		}
 		return
 	}
 
@@ -340,6 +350,18 @@ func (s *serve) handleConnection(conn net.Conn) {
 		out.Close()
 		log.Println(out.RemoteAddr(), "<="+reqtype+"==", host, "[√]")
 	}(pconn, conn, to, cmd.reqtype)
+}
+
+// 重新登录
+func (s *serve) reLogin() {
+	log.Println("服务端验证失败，正在重新登录")
+	if err := s.handshake(); err != nil {
+		log.Println("重新登录失败：", err)
+		relogin = false
+		return
+	}
+	log.Println("重新登录成功,服务器连接完毕")
+	relogin = false
 }
 
 type cmd struct {
