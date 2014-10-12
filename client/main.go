@@ -189,8 +189,12 @@ func (s *serve) handshake() error {
 			time.Sleep(time.Second * 60)
 			_, err := pconn.Write([]byte{0})
 			if err != nil {
+				// 心跳包发送失败，与服务器断开链接
 				pconn.Close()
 				log.Println("与服务端断开链接：", err)
+				// 重新登录
+				relogin = true
+				s.reLogin()
 				return
 			}
 		}
@@ -292,6 +296,7 @@ func (s *serve) handleConnection(conn net.Conn) {
 		conn.Close()
 		// 检查是否已经在重新登录，如果没有则重新登录
 		if !relogin {
+			log.Println("服务端验证失败")
 			relogin = true
 			s.reLogin()
 		}
@@ -354,7 +359,7 @@ func (s *serve) handleConnection(conn net.Conn) {
 
 // 重新登录
 func (s *serve) reLogin() {
-	log.Println("服务端验证失败，正在重新登录")
+	log.Println("正在重新登录")
 	if err := s.handshake(); err != nil {
 		log.Println("重新登录失败：", err)
 		relogin = false
