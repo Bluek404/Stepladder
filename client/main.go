@@ -270,7 +270,7 @@ func (s *serve) handleConnection(conn net.Conn) {
 	}
 
 	if cmd.cmd != cmdConnect {
-		log.Println("Error:", cmd.cmd)
+		log.Println("错误:", cmd.cmd, "请检查代理协议是否为socks5")
 		conn.Close()
 		return
 	}
@@ -294,10 +294,8 @@ func (s *serve) handleConnection(conn net.Conn) {
 		log.Println("服务端验证失败")
 		pconn.Close()
 		conn.Close()
-		// 检查是否已经在重新登录，如果没有则重新登录
-		if !relogin {
-			s.reLogin()
-		}
+		// 重新登录
+		s.reLogin()
 		return
 	}
 
@@ -357,15 +355,18 @@ func (s *serve) handleConnection(conn net.Conn) {
 
 // 重新登录
 func (s *serve) reLogin() {
-	relogin = true
-	log.Println("正在重新登录")
-	if err := s.handshake(); err != nil {
-		log.Println("重新登录失败：", err)
+	// 检查是否已经在重新登录中
+	if !relogin {
+		relogin = true
+		log.Println("正在重新登录")
+		if err := s.handshake(); err != nil {
+			log.Println("重新登录失败：", err)
+			relogin = false
+			return
+		}
+		log.Println("重新登录成功,服务器连接完毕")
 		relogin = false
-		return
 	}
-	log.Println("重新登录成功,服务器连接完毕")
-	relogin = false
 }
 
 type cmd struct {
