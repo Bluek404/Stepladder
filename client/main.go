@@ -193,7 +193,6 @@ func (s *serve) handshake() error {
 				pconn.Close()
 				log.Println("与服务端断开链接：", err)
 				// 重新登录
-				relogin = true
 				s.reLogin()
 				return
 			}
@@ -285,19 +284,18 @@ func (s *serve) handleConnection(conn net.Conn) {
 		Value: map[string]string{"reqtype": cmd.reqtype, "url": to},
 	})
 	if err != nil {
-		conn.Close()
 		log.Println("连接服务端失败：", err)
+		conn.Close()
 		return
 	}
 
 	// 检查服务端是否返回成功
 	if !ok {
+		log.Println("服务端验证失败")
 		pconn.Close()
 		conn.Close()
 		// 检查是否已经在重新登录，如果没有则重新登录
 		if !relogin {
-			log.Println("服务端验证失败")
-			relogin = true
 			s.reLogin()
 		}
 		return
@@ -359,6 +357,7 @@ func (s *serve) handleConnection(conn net.Conn) {
 
 // 重新登录
 func (s *serve) reLogin() {
+	relogin = true
 	log.Println("正在重新登录")
 	if err := s.handshake(); err != nil {
 		log.Println("重新登录失败：", err)
