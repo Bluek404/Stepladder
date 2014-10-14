@@ -15,9 +15,10 @@ import (
 
 const (
 	version = "0.4.2"
-
-	login      = 0
-	connection = 1
+)
+const (
+	login = iota
+	connection
 )
 
 func main() {
@@ -113,10 +114,16 @@ func (s *serve) handleConnection(conn net.Conn) {
 		conn.Close()
 		return
 	}
-
 	switch handshake.Type {
 	case login:
-		// 接受到登录请求，验证key
+		// 接受到登录请求
+		// 检查是否已经登录
+		_, ok := s.clients[getIP(conn.RemoteAddr().String())]
+		if ok {
+			log.Println("重复登录：", conn.RemoteAddr().String())
+			return
+		}
+		// 验证key
 		if handshake.Value["key"] == s.key {
 			log.Println("新的客户端加入：", conn.RemoteAddr().String())
 			//验证成功，发送成功信息
@@ -129,10 +136,8 @@ func (s *serve) handleConnection(conn net.Conn) {
 
 			// 接收心跳包
 			for {
-				// 心跳包接收间隔
-				time.Sleep(time.Second * 60)
 				// 设置接收心跳包超时时间
-				conn.SetDeadline(time.Now().Add(time.Second * 10))
+				conn.SetDeadline(time.Now().Add(time.Second * 65))
 				buf := make([]byte, 1)
 				_, err = conn.Read(buf)
 				if err != nil {
@@ -186,6 +191,8 @@ func (s *serve) handleConnection(conn net.Conn) {
 			conn.Close()
 			log.Println(conn.RemoteAddr(), "<="+handshake.Value["reqtype"]+"==", handshake.Value["url"], "[√]")
 		}()
+	default:
+		log.Println("未知请求类型：", handshake.Type)
 	}
 }
 

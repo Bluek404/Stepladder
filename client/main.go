@@ -34,13 +34,16 @@ const (
 	repSucceeded = 0x00
 
 	rsvReserved = 0x00
-
-	login      = 0
-	connection = 1
+)
+const (
+	login = iota
+	connection
 )
 
 var (
-	relogin bool // 用于判断是否正在重新登录中
+	relogin            bool      // 用于判断是否正在重新登录中
+	heartbeatIsRunning bool      // 用于检查心跳包线程是否在运行中
+	exitHeartbeat      chan bool // 用于退出线程
 )
 
 func main() {
@@ -107,6 +110,9 @@ func main() {
 			RootCAs: roots,
 		},
 	}
+
+	//初始化通道
+	exitHeartbeat = make(chan bool, 1)
 
 	// 登录
 	if err = s.handshake(); err != nil {
@@ -184,22 +190,33 @@ func (s *serve) handshake() error {
 	}
 	// 发送心跳包
 	go func() {
+		heartbeatIsRunning = true
+		defer func() {
+			heartbeatIsRunning = false
+		}()
+
 		for {
 			// 心跳包发送间隔
 			time.Sleep(time.Second * 60)
 			_, err := pconn.Write([]byte{0})
 			if err != nil {
 				// 心跳包发送失败
-				// 再次尝试发送
-				_, err := pconn.Write([]byte{0})
-				if err != nil {
-					// 与服务器断开链接
-					pconn.Close()
-					log.Println("与服务端断开链接：", err)
-					// 重新登录
-					s.reLogin()
+				select {
+				case <-exitHeartbeat:
+					// 接收到退出命令，已经启动新的心跳线程，结束本线程
+					return
+				default:
+					// 再次尝试发送
+					_, err := pconn.Write([]byte{0})
+					if err != nil {
+						// 与服务器断开链接
+						pconn.Close()
+						log.Println("与服务端断开链接：", err)
+						// 重新登录
+						s.reLogin()
+						return
+					}
 				}
-				return
 			}
 		}
 	}()
@@ -363,6 +380,10 @@ func (s *serve) reLogin() {
 	// 检查是否已经在重新登录中
 	if !relogin {
 		relogin = true
+		if heartbeatIsRunning {
+			// 原先的发送心跳包线程还在运行，发送退出命令
+			exitHeartbeat <- true
+		}
 		log.Println("正在重新登录")
 		if err := s.handshake(); err != nil {
 			log.Println("重新登录失败：", err)
