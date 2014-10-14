@@ -116,9 +116,6 @@ func main() {
 		},
 	}
 
-	//初始化通道
-	exitHeartbeat = make(chan bool, 1)
-
 	// 登录
 	if err = s.handshake(); err != nil {
 		log.Println("与服务器链接失败：", err)
