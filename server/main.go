@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	version = "0.4.1"
+	version = "0.4.2"
 
 	login      = 0
 	connection = 1
@@ -129,15 +129,23 @@ func (s *serve) handleConnection(conn net.Conn) {
 
 			// 接收心跳包
 			for {
-				// 设置心跳包超时时间
-				conn.SetDeadline(time.Now().Add(time.Second * 65))
+				// 心跳包接收间隔
+				time.Sleep(time.Second * 60)
+				// 设置接收心跳包超时时间
+				conn.SetDeadline(time.Now().Add(time.Second * 10))
 				buf := make([]byte, 1)
 				_, err = conn.Read(buf)
 				if err != nil {
-					// 客户端断开链接，删除客户端IP
-					log.Println("客户端断开链接：", err)
-					delete(s.clients, getIP(conn.RemoteAddr().String()))
-					return
+					// 心跳包接收失败
+					// 再次尝试接收
+					conn.SetDeadline(time.Now().Add(time.Second * 10))
+					_, err = conn.Read(buf)
+					if err != nil {
+						// 客户端断开链接，删除客户端IP
+						log.Println("客户端断开链接：", err)
+						delete(s.clients, getIP(conn.RemoteAddr().String()))
+						return
+					}
 				}
 				isOK(conn)
 			}

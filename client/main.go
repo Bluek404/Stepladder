@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	version = "0.4.1"
+	version = "0.4.2"
 
 	verSocks5 = 0x05
 
@@ -189,11 +189,16 @@ func (s *serve) handshake() error {
 			time.Sleep(time.Second * 60)
 			_, err := pconn.Write([]byte{0})
 			if err != nil {
-				// 心跳包发送失败，与服务器断开链接
-				pconn.Close()
-				log.Println("与服务端断开链接：", err)
-				// 重新登录
-				s.reLogin()
+				// 心跳包发送失败
+				// 再次尝试发送
+				_, err := pconn.Write([]byte{0})
+				if err != nil {
+					// 与服务器断开链接
+					pconn.Close()
+					log.Println("与服务端断开链接：", err)
+					// 重新登录
+					s.reLogin()
+				}
 				return
 			}
 		}
