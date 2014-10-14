@@ -41,9 +41,14 @@ const (
 )
 
 var (
-	relogin            bool      // 用于判断是否正在重新登录中
-	heartbeatIsRunning bool      // 用于检查心跳包线程是否在运行中
-	exitHeartbeat      chan bool // 用于退出线程
+	// 用于判断是否正在重新登录中
+	relogin bool
+
+	// 统计发送心跳包线程的数量
+	// 采用统计数量而不是bool判断是否存在的原因是
+	// 客户端与服务器有可能短时间内重复多次链接+断开导致有多个线程未结束
+	// 用统计数量的话就可以挨个结束了
+	heartbeatGoroutine int
 )
 
 func main() {
@@ -189,10 +194,14 @@ func (s *serve) handshake() error {
 		return errors.New("与服务器验证失败，请检查key是否正确")
 	}
 	// 发送心跳包
+	// 当发送错误时说明链接已断开
+	// 会自动重新登录
+	// 如果检测到其他心跳包线程
+	// 说明已经有接替，结束本线程
 	go func() {
-		heartbeatIsRunning = true
+		heartbeatGoroutine++
 		defer func() {
-			heartbeatIsRunning = false
+			heartbeatGoroutine--
 		}()
 
 		for {
@@ -201,11 +210,12 @@ func (s *serve) handshake() error {
 			_, err := pconn.Write([]byte{0})
 			if err != nil {
 				// 心跳包发送失败
-				select {
-				case <-exitHeartbeat:
-					// 接收到退出命令，已经启动新的心跳线程，结束本线程
+				if heartbeatGoroutine > 1 {
+					// 发送心跳包的线程大于1
+					// 已经有新的心跳包线程
+					// 结束本线程
 					return
-				default:
+				} else {
 					// 再次尝试发送
 					_, err := pconn.Write([]byte{0})
 					if err != nil {
@@ -380,10 +390,6 @@ func (s *serve) reLogin() {
 	// 检查是否已经在重新登录中
 	if !relogin {
 		relogin = true
-		if heartbeatIsRunning {
-			// 原先的发送心跳包线程还在运行，发送退出命令
-			exitHeartbeat <- true
-		}
 		log.Println("正在重新登录")
 		if err := s.handshake(); err != nil {
 			log.Println("重新登录失败：", err)
