@@ -18,7 +18,7 @@ Stepladder
 
 **客户端：**
 
-  1. 点击右边的按钮打开客户端下载页面[![Gobuild Download](https://img.shields.io/badge/Gobuild-download-green.svg?style=flat)](http://beta.gobuild.io/github.com/Bluek404/Stepladder/client)
+  1. 点击右边的按钮打开客户端下载页面[![Gobuild Download](https://img.shields.io/badge/Gobuild-download-green.svg?style=flat)](http://gobuild.io/github.com/Bluek404/Stepladder/client)
 
   2. 先看一下你的系统是什么，如果不知道的话一般就是Windows。然后点击刚刚打开的页面点击相应系统的绿色按钮下载。
 
@@ -48,7 +48,7 @@ Stepladder
 
 **服务端：**
 
-  1. 点击右边按钮打开服务端下载页面[![Gobuild Download](https://img.shields.io/badge/Gobuild-download-green.svg?style=flat)](http://beta.gobuild.io/github.com/Bluek404/Stepladder/server)
+  1. 点击右边按钮打开服务端下载页面[![Gobuild Download](https://img.shields.io/badge/Gobuild-download-green.svg?style=flat)](http://gobuild.io/github.com/Bluek404/Stepladder/server)
 
   2. 和上面的客户端一样的下载方式（请记得问一下你的服务器是什么系统，然后下载和服务器系统相同的）
 
@@ -89,7 +89,7 @@ Stepladder
 如果还有什么不会的话可以在[这里](https://github.com/Bluek404/Stepladder/issues)提交问题，或者加我QQ799669332（请备注`Stepladder问题`）
 
 客户端&服务端打包下载：
-[![Gobuild Download](https://img.shields.io/badge/Gobuild-download-green.svg?style=flat)](http://beta.gobuild.io/github.com/Bluek404/Stepladder)
+[![Gobuild Download](https://img.shields.io/badge/Gobuild-download-green.svg?style=flat)](http://gobuild.io/github.com/Bluek404/Stepladder)
 
 TODO
 ----
