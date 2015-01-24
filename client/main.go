@@ -57,23 +57,23 @@ func main() {
 	// 读取证书文件
 	rootPEM, err := ioutil.ReadFile("cert.pem")
 	if err != nil {
-		log.Println("读取 cert.pem 出错：", err, "请检查文件是否存在")
+		fmt.Printf("读取 cert.pem 出错：", err, "请检查文件是否存在")
 		return
 	}
 	roots := x509.NewCertPool()
 	ok := roots.AppendCertsFromPEM(rootPEM)
 	if !ok {
-		log.Println("证书分析失败，请证书文件是否正确")
+		fmt.Printf("证书分析失败，请证书文件是否正确")
 		return
 	}
 
 	// 加载配置文件
 	cfg, err := goconfig.LoadConfigFile("client.ini")
 	if err != nil {
-		log.Println("配置文件加载失败，自动重置配置文件：", err)
+		fmt.Printf("配置文件加载失败，自动重置配置文件：", err)
 		cfg, err = goconfig.LoadFromData([]byte{})
 		if err != nil {
-			log.Println(err)
+			fmt.Printf(err)
 			return
 		}
 	}
@@ -89,23 +89,23 @@ func main() {
 	if ok1 || ok2 || ok3 || ok4 {
 		err = goconfig.SaveConfigFile(cfg, "client.ini")
 		if err != nil {
-			log.Println("配置文件保存失败：", err)
+			fmt.Printf("配置文件保存失败：", err)
 		}
 	}
 
 	ln, err := net.Listen("tcp", ":"+port)
 	if err != nil {
-		log.Println(err)
+		fmt.Printf(err)
 		return
 	}
 	defer ln.Close()
 
-	log.Println("|>>>>>>>>>>>>>>>|<<<<<<<<<<<<<<<|")
-	log.Println("程序版本：" + version)
-	log.Println("代理端口：" + port)
-	log.Println("Key：" + key)
-	log.Println("服务器地址：" + serverHost + ":" + serverPort)
-	log.Println("|>>>>>>>>>>>>>>>|<<<<<<<<<<<<<<<|")
+	fmt.Printf("|>>>>>>>>>>>>>>>|<<<<<<<<<<<<<<<|")
+	fmt.Printf("程序版本：" + version)
+	fmt.Printf("代理端口：" + port)
+	fmt.Printf("Key：" + key)
+	fmt.Printf("服务器地址：" + serverHost + ":" + serverPort)
+	fmt.Printf("|>>>>>>>>>>>>>>>|<<<<<<<<<<<<<<<|")
 
 	s := &serve{
 		serverHost: serverHost,
@@ -118,15 +118,15 @@ func main() {
 
 	// 登录
 	if err = s.handshake(); err != nil {
-		log.Println("与服务器链接失败：", err)
+		fmt.Printf("与服务器链接失败：", err)
 		return
 	}
-	log.Println("登录成功,服务器连接完毕")
+	fmt.Printf("登录成功,服务器连接完毕")
 
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
-			log.Println(err)
+			fmt.Printf(err)
 			continue
 		}
 		go s.handleConnection(conn)
@@ -218,7 +218,7 @@ func (s *serve) handshake() error {
 					if err != nil {
 						// 与服务器断开链接
 						pconn.Close()
-						log.Println("与服务端断开链接：", err)
+						fmt.Printf("与服务端断开链接：", err)
 						// 重新登录
 						s.reLogin()
 						return
@@ -270,13 +270,13 @@ func (s *serve) send(handshake *Handshake) (net.Conn, bool, error) {
 
 // 处理浏览器发出的请求
 func (s *serve) handleConnection(conn net.Conn) {
-	log.Println("[+]", conn.RemoteAddr())
+	fmt.Printf("[+]", conn.RemoteAddr())
 
 	// recv hello
 	var err error
 	err = read(conn)
 	if err != nil {
-		log.Println(err)
+		fmt.Printf(err)
 		conn.Close()
 		return
 	}
@@ -285,7 +285,7 @@ func (s *serve) handleConnection(conn net.Conn) {
 	buf := []byte{5, 0}
 	_, err = conn.Write(buf)
 	if err != nil {
-		log.Println(err)
+		fmt.Printf(err)
 		conn.Close()
 		return
 	}
@@ -293,19 +293,19 @@ func (s *serve) handleConnection(conn net.Conn) {
 	var cmd cmd
 	_, err = cmd.ReadFrom(conn)
 	if err != nil {
-		log.Println(err)
+		fmt.Printf(err)
 		conn.Close()
 		return
 	}
 
 	if cmd.cmd != cmdConnect {
-		log.Println("错误:", cmd.cmd, "请检查代理协议是否为socks5")
+		fmt.Printf("错误:", cmd.cmd, "请检查代理协议是否为socks5")
 		conn.Close()
 		return
 	}
 
 	to := cmd.DestAddress()
-	log.Println(conn.RemoteAddr(), "=="+cmd.reqtype+"=>", to)
+	fmt.Printf(conn.RemoteAddr(), "=="+cmd.reqtype+"=>", to)
 
 	// 与服务端建立链接
 	pconn, ok, err := s.send(&Handshake{
@@ -313,14 +313,14 @@ func (s *serve) handleConnection(conn net.Conn) {
 		Value: map[string]string{"reqtype": cmd.reqtype, "url": to},
 	})
 	if err != nil {
-		log.Println("连接服务端失败：", err)
+		fmt.Printf("连接服务端失败：", err)
 		conn.Close()
 		return
 	}
 
 	// 检查服务端是否返回成功
 	if !ok {
-		log.Println("服务端验证失败")
+		fmt.Printf("服务端验证失败")
 		pconn.Close()
 		conn.Close()
 		// 重新登录
@@ -336,7 +336,7 @@ func (s *serve) handleConnection(conn net.Conn) {
 
 	host, port, err := net.SplitHostPort(pconn.LocalAddr().String())
 	if err != nil {
-		log.Println(err)
+		fmt.Printf(err)
 		conn.Close()
 		pconn.Close()
 		return
@@ -353,7 +353,7 @@ func (s *serve) handleConnection(conn net.Conn) {
 
 	prt, err := strconv.Atoi(port)
 	if err != nil {
-		log.Println(err)
+		fmt.Printf(err)
 		conn.Close()
 		pconn.Close()
 		return
@@ -361,7 +361,7 @@ func (s *serve) handleConnection(conn net.Conn) {
 	r.bnd_port = uint16(prt)
 
 	if _, err = r.WriteTo(conn); err != nil {
-		log.Println(err)
+		fmt.Printf(err)
 		conn.Close()
 		pconn.Close()
 		return
@@ -371,14 +371,14 @@ func (s *serve) handleConnection(conn net.Conn) {
 		io.Copy(in, out)
 		in.Close()
 		out.Close()
-		log.Println(in.RemoteAddr(), "=="+reqtype+"=>", host, "[√]")
+		fmt.Printf(in.RemoteAddr(), "=="+reqtype+"=>", host, "[√]")
 	}(conn, pconn, to, cmd.reqtype)
 
 	go func(in net.Conn, out net.Conn, host, reqtype string) {
 		io.Copy(in, out)
 		in.Close()
 		out.Close()
-		log.Println(out.RemoteAddr(), "<="+reqtype+"==", host, "[√]")
+		fmt.Printf(out.RemoteAddr(), "<="+reqtype+"==", host, "[√]")
 	}(pconn, conn, to, cmd.reqtype)
 }
 
@@ -387,13 +387,13 @@ func (s *serve) reLogin() {
 	// 检查是否已经在重新登录中
 	if !relogin {
 		relogin = true
-		log.Println("正在重新登录")
+		fmt.Printf("正在重新登录")
 		if err := s.handshake(); err != nil {
-			log.Println("重新登录失败：", err)
+			fmt.Printf("重新登录失败：", err)
 			relogin = false
 			return
 		}
-		log.Println("重新登录成功,服务器连接完毕")
+		fmt.Printf("重新登录成功,服务器连接完毕")
 		relogin = false
 	}
 }
@@ -434,7 +434,7 @@ func (c *cmd) ReadFrom(conn net.Conn) (n int64, err error) {
 	case reqtypeTCP:
 		c.reqtype = "tcp"
 	case reqtypeBIND:
-		log.Println("BIND")
+		fmt.Printf("BIND")
 	case reqtypeUDP:
 		c.reqtype = "udp"
 	}
