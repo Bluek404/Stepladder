@@ -86,7 +86,7 @@ Stepladder
 
 设置浏览器的socks5代理为`127.0.0.1:7071`就可以啦（后面的端口依据你上面修改的配置而定）
 
-如果还有什么不会的话可以在[这里](https://github.com/Bluek404/Stepladder/issues)提交问题，或者加我QQ799669332（请备注`Stepladder问题`）
+如果还有什么不会的话可以在[这里](https://github.com/Bluek404/Stepladder/issues)提交问题，或者发送邮件到<i@bluek404.net>
 
 客户端&服务端打包下载：
 [![Gobuild Download](https://img.shields.io/badge/Gobuild-download-green.svg?style=flat)](http://gobuild.io/github.com/Bluek404/Stepladder)
