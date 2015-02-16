@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	version = "0.4.3"
+	version = "1.0.0"
 )
 const (
 	login = iota
@@ -22,8 +22,6 @@ const (
 )
 
 func main() {
-	//log.SetFlags(log.Lshortfile) // debug时开启
-
 	// 读取配置文件
 	cfg, err := goconfig.LoadConfigFile("server.ini")
 	if err != nil {
@@ -44,7 +42,7 @@ func main() {
 	if ok1 || ok2 {
 		err = goconfig.SaveConfigFile(cfg, "server.ini")
 		if err != nil {
-			log.Println("配置文件保存失败：", err)
+			log.Println("配置文件保存失败:", err)
 		}
 	}
 
@@ -72,9 +70,9 @@ func main() {
 
 	// 加载完成后输出配置信息
 	log.Println("|>>>>>>>>>>>>>>>|<<<<<<<<<<<<<<<|")
-	log.Println("程序版本：" + version)
-	log.Println("监听端口：" + port)
-	log.Println("Key：" + key)
+	log.Println("程序版本:" + version)
+	log.Println("监听端口:" + port)
+	log.Println("Key:" + key)
 	log.Println("|>>>>>>>>>>>>>>>|<<<<<<<<<<<<<<<|")
 
 	for {
@@ -96,7 +94,7 @@ type serve struct {
 func (s *serve) handleConnection(conn net.Conn) {
 	log.Println("[+]", conn.RemoteAddr())
 
-	var handshake Handshake
+	var msg Message
 
 	// 读取客户端发送数据
 	buf := make([]byte, 1024)
@@ -108,24 +106,24 @@ func (s *serve) handleConnection(conn net.Conn) {
 	}
 
 	// 对数据解码
-	err = decode(buf[:n], &handshake)
+	err = decode(buf[:n], &msg)
 	if err != nil {
 		log.Println(err)
 		conn.Close()
 		return
 	}
-	switch handshake.Type {
+	switch msg.Type {
 	case login:
 		// 接受到登录请求
 		// 检查是否已经登录
 		_, ok := s.clients[getIP(conn.RemoteAddr().String())]
 		if ok {
-			log.Println("重复登录：", conn.RemoteAddr().String())
+			log.Println("重复登录:", conn.RemoteAddr().String())
 			return
 		}
 		// 验证key
-		if handshake.Value["key"] == s.key {
-			log.Println("新的客户端加入：", conn.RemoteAddr().String())
+		if msg.Value["key"] == s.key {
+			log.Println("新的客户端加入:", conn.RemoteAddr().String())
 			//验证成功，发送成功信息
 			isOK(conn)
 
@@ -147,7 +145,7 @@ func (s *serve) handleConnection(conn net.Conn) {
 					_, err = conn.Read(buf)
 					if err != nil {
 						// 客户端断开链接，删除客户端IP
-						log.Println("客户端断开链接：", err)
+						log.Println("客户端断开链接:", err)
 						delete(s.clients, getIP(conn.RemoteAddr().String()))
 						return
 					}
@@ -156,7 +154,7 @@ func (s *serve) handleConnection(conn net.Conn) {
 			}
 		} else {
 			// 客户端验证失败，输出key并返回失败信息
-			log.Println(conn.RemoteAddr(), "验证失败，对方所使用的key：", handshake.Value["key"])
+			log.Println(conn.RemoteAddr(), "验证失败，对方所使用的key:", msg.Value["key"])
 			isntOK(conn)
 			return
 		}
@@ -168,31 +166,36 @@ func (s *serve) handleConnection(conn net.Conn) {
 			return
 		}
 		// 输出信息
-		log.Println(conn.RemoteAddr(), "=="+handshake.Value["reqtype"]+"=>", handshake.Value["url"])
+		log.Println(conn.RemoteAddr(), "<="+msg.Value["reqtype"]+"=>", msg.Value["url"], "[+]")
 
 		// connect
-		pconn, err := net.Dial(handshake.Value["reqtype"], handshake.Value["url"])
+		pconn, err := net.Dial(msg.Value["reqtype"], msg.Value["url"])
 		if err != nil {
 			log.Println(err)
+			log.Println(conn.RemoteAddr(), "=="+msg.Value["reqtype"]+"=>", msg.Value["url"], "[×]")
+			log.Println(conn.RemoteAddr(), "<="+msg.Value["reqtype"]+"==", msg.Value["url"], "[×]")
+			// 给客户端返回错误信息
+			conn.Write([]byte{3})
 			conn.Close()
 			return
 		}
+		conn.Write([]byte{0})
 
 		// 两个conn互相传输信息
 		go func() {
 			io.Copy(conn, pconn)
 			conn.Close()
 			pconn.Close()
-			log.Println(conn.RemoteAddr(), "=="+handshake.Value["reqtype"]+"=>", handshake.Value["url"], "[√]")
+			log.Println(conn.RemoteAddr(), "=="+msg.Value["reqtype"]+"=>", msg.Value["url"], "[√]")
 		}()
 		go func() {
 			io.Copy(pconn, conn)
 			pconn.Close()
 			conn.Close()
-			log.Println(conn.RemoteAddr(), "<="+handshake.Value["reqtype"]+"==", handshake.Value["url"], "[√]")
+			log.Println(conn.RemoteAddr(), "<="+msg.Value["reqtype"]+"==", msg.Value["url"], "[√]")
 		}()
 	default:
-		log.Println("未知请求类型：", handshake.Type)
+		log.Println("未知请求类型:", msg.Type)
 	}
 }
 
@@ -210,7 +213,7 @@ func (s *serve) clientOnClientsList(conn net.Conn) error {
 		// 客户端不存在，返回错误信息并且关闭链接
 		// 输出非法连接者IP
 		isntOK(conn)
-		return errors.New("非法连接： " + conn.RemoteAddr().String())
+		return errors.New("非法连接:" + conn.RemoteAddr().String())
 	}
 	// 客户端存在，返回成功信息
 	isOK(conn)
@@ -244,7 +247,7 @@ func decode(data []byte, to interface{}) error {
 	return dec.Decode(to)
 }
 
-type Handshake struct {
+type Message struct {
 	Type  int
 	Value map[string]string
 }
