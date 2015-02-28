@@ -1,9 +1,0 @@
-filesets:
-  includes:
-  - client.ini
-  excludes:
-  - .*.go
-settings:
-  targetdir: ""
-  addopts: ""
-  yaml"cgoenable": false
