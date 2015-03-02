@@ -1,4 +1,4 @@
-Stepladder
+Stepladder   [![continue-integration](https://img.shields.io/jenkins/s/https/ci.qaq.gd/Stepladder.svg?style=flat-square)](https://ci.qaq.gd/job/Stepladder/)
 ==========
 
 >梯子是一种用于翻墙的工具
@@ -21,6 +21,9 @@ Stepladder
 
 [![download](https://img.shields.io/badge/Download-Stepladder--windows--32-red.svg?style=flat-square)](https://github.com/Bluek404/Stepladder/releases/download/1.0.0/Stepladder-windows-32.tar.gz)
 [![download](https://img.shields.io/badge/Download-Stepladder--windows--64-red.svg?style=flat-square)](https://github.com/Bluek404/Stepladder/releases/download/1.0.0/Stepladder-windows-64.tar.gz)
+
+[![download](https://img.shields.io/badge/Download-Stepladder--android--arm--client-orange.svg?style=flat-square)](https://ci.qaq.gd/job/Stepladder/lastSuccessfulBuild/artifact/client/stepladder-client-androidarm)
+[![download](https://img.shields.io/badge/Download-Stepladder--android--arm--server-orange.svg?style=flat-square)](https://ci.qaq.gd/job/Stepladder/lastSuccessfulBuild/artifact/server/stepladder-server-androidarm) (不建议使用) (需终端，root) (需复制到带执行权限的位置(Ex: /mnt/asec 或 /system/bin)) (请自行构建工作目录 可以参照上面几个build) (请配合ProxyDroid使用) (这只是cli，不是APP！)
 
 使用方法
 -------
