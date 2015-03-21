@@ -65,7 +65,7 @@ func main() {
 
 	s := &serve{
 		key:     key,
-		clients: make(map[string]interface{}),
+		clients: make(map[string]uint),
 	}
 
 	// 加载完成后输出配置信息
@@ -87,7 +87,7 @@ func main() {
 
 type serve struct {
 	key     string
-	clients map[string]interface{}
+	clients map[string]uint
 	keepit  map[string]chan bool
 }
 
@@ -115,12 +115,6 @@ func (s *serve) handleConnection(conn net.Conn) {
 	switch msg.Type {
 	case login:
 		// 接受到登录请求
-		// 检查是否已经登录
-		_, ok := s.clients[getIP(conn.RemoteAddr().String())]
-		if ok {
-			log.Println("重复登录:", conn.RemoteAddr().String())
-			return
-		}
 		// 验证key
 		if msg.Value["key"] == s.key {
 			log.Println("新的客户端加入:", conn.RemoteAddr().String())
@@ -128,7 +122,8 @@ func (s *serve) handleConnection(conn net.Conn) {
 			isOK(conn)
 
 			// 将客户端IP地址添加进客户端列表
-			s.clients[getIP(conn.RemoteAddr().String())] = nil
+			// value为此IP当前在线客户端数量
+			s.clients[getIP(conn.RemoteAddr().String())]++
 
 			defer conn.Close()
 
@@ -144,9 +139,14 @@ func (s *serve) handleConnection(conn net.Conn) {
 					conn.SetDeadline(time.Now().Add(time.Second * 10))
 					_, err = conn.Read(buf)
 					if err != nil {
-						// 客户端断开链接，删除客户端IP
+						// 客户端断开链接
 						log.Println("客户端断开链接:", err)
-						delete(s.clients, getIP(conn.RemoteAddr().String()))
+						// 减少一个客户端
+						s.clients[getIP(conn.RemoteAddr().String())]--
+						// 如果这个IP全部客户端都已下线，则删除客户端IP记录
+						if s.clients[getIP(conn.RemoteAddr().String())] == 0 {
+							delete(s.clients, getIP(conn.RemoteAddr().String()))
+						}
 						return
 					}
 				}
