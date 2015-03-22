@@ -12,18 +12,18 @@ Stepladder   [![continue-integration](https://img.shields.io/jenkins/s/https/ci.
 下载
 ----
 
-[![download](https://img.shields.io/badge/Download-Stepladder--linux--32-green.svg?style=flat-square)](https://github.com/Bluek404/Stepladder/releases/download/1.0.0/Stepladder-linux-32.tar.gz)
-[![download](https://img.shields.io/badge/Download-Stepladder--linux--64-green.svg?style=flat-square)](https://github.com/Bluek404/Stepladder/releases/download/1.0.0/Stepladder-linux-64.tar.gz)
-[![download](https://img.shields.io/badge/Download-Stepladder--linux--arm-green.svg?style=flat-square)](https://github.com/Bluek404/Stepladder/releases/download/1.0.0/Stepladder-linux-arm.tar.gz)
+[![download](https://img.shields.io/badge/Download-Stepladder--linux--32-green.svg?style=flat-square)](https://ci.qaq.gd/job/Stepladder/lastSuccessfulBuild/artifact/build/stepladder-linux-386.7z)
+[![download](https://img.shields.io/badge/Download-Stepladder--linux--64-green.svg?style=flat-square)](https://ci.qaq.gd/job/Stepladder/lastSuccessfulBuild/artifact/build/stepladder-linux-amd64.7z)
+[![download](https://img.shields.io/badge/Download-Stepladder--linux--arm-green.svg?style=flat-square)](https://ci.qaq.gd/job/Stepladder/lastSuccessfulBuild/artifact/build/stepladder-linux-arm.7z)
 
-[![download](https://img.shields.io/badge/Download-Stepladder--mac--32-blue.svg?style=flat-square)](https://github.com/Bluek404/Stepladder/releases/download/1.0.0/Stepladder-mac-32.tar.gz)
-[![download](https://img.shields.io/badge/Download-Stepladder--mac--64-blue.svg?style=flat-square)](https://github.com/Bluek404/Stepladder/releases/download/1.0.0/Stepladder-mac-64.tar.gz)
+[![download](https://img.shields.io/badge/Download-Stepladder--mac--32-blue.svg?style=flat-square)](https://ci.qaq.gd/job/Stepladder/lastSuccessfulBuild/artifact/build/stepladder-darwin-386.7z)
+[![download](https://img.shields.io/badge/Download-Stepladder--mac--64-blue.svg?style=flat-square)](https://ci.qaq.gd/job/Stepladder/lastSuccessfulBuild/artifact/build/stepladder-darwin-amd64.7z)
 
-[![download](https://img.shields.io/badge/Download-Stepladder--windows--32-red.svg?style=flat-square)](https://github.com/Bluek404/Stepladder/releases/download/1.0.0/Stepladder-windows-32.tar.gz)
-[![download](https://img.shields.io/badge/Download-Stepladder--windows--64-red.svg?style=flat-square)](https://github.com/Bluek404/Stepladder/releases/download/1.0.0/Stepladder-windows-64.tar.gz)
+[![download](https://img.shields.io/badge/Download-Stepladder--windows--32-red.svg?style=flat-square)](https://ci.qaq.gd/job/Stepladder/lastSuccessfulBuild/artifact/build/stepladder-windows-386.7z)
+[![download](https://img.shields.io/badge/Download-Stepladder--windows--64-red.svg?style=flat-square)](https://ci.qaq.gd/job/Stepladder/lastSuccessfulBuild/artifact/build/stepladder-windows-amd64.7z)
 
-[![download](https://img.shields.io/badge/Download-Stepladder--android--arm--client-orange.svg?style=flat-square)](https://ci.qaq.gd/job/Stepladder/lastSuccessfulBuild/artifact/client/stepladder-client-androidarm)
-[![download](https://img.shields.io/badge/Download-Stepladder--android--arm--server-orange.svg?style=flat-square)](https://ci.qaq.gd/job/Stepladder/lastSuccessfulBuild/artifact/server/stepladder-server-androidarm) (不建议使用) (需终端，root) (需复制到带执行权限的位置(Ex: /mnt/asec 或 /system/bin)) (请自行构建工作目录 可以参照上面几个build) (请配合ProxyDroid使用) (这只是cli，不是APP！)
+[![download](https://img.shields.io/badge/Download-Stepladder--android--arm-orange.svg?style=flat-square)](https://ci.qaq.gd/job/Stepladder/lastSuccessfulBuild/artifact/build/stepladder-android-arm.7z)
+(需终端，root) (需复制到带执行权限的位置(Ex: /mnt/asec 或 /system/bin))(请配合ProxyDroid使用)(这只是cli，不是APP！)
 
 使用方法
 -------
