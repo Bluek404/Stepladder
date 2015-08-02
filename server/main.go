@@ -21,80 +21,53 @@ import (
 	"crypto/tls"
 	"encoding/gob"
 	"errors"
-	"github.com/Unknwon/goconfig"
+	"fmt"
+	"github.com/ije/gox/config"
 	"io"
-	"log"
 	"net"
 	"strings"
 	"time"
 )
 
 const (
-	version = "1.0.1"
-)
-const (
 	login = iota
 	connection
+	pacscript
 )
 
 func main() {
-	// 读取配置文件
-	cfg, err := goconfig.LoadConfigFile("server.ini")
+	etcDir := "/usr/local/etc/fuckgfw/"
+
+	cfg, err := config.New(etcDir + "server.cfg")
 	if err != nil {
-		log.Println("配置文件加载失败，自动重置配置文件", err)
-		cfg, err = goconfig.LoadFromData([]byte{})
-		if err != nil {
-			log.Println(err)
-			return
-		}
-	}
-
-	var (
-		key, ok1  = cfg.MustValueSet("client", "key", "eGauUecvzS05U5DIsxAN4n2hadmRTZGBqNd2zsCkrvwEBbqoITj36mAMk4Unw6Pr")
-		port, ok2 = cfg.MustValueSet("server", "port", "8081")
-	)
-
-	// 如果缺少配置则保存为默认配置
-	if ok1 || ok2 {
-		err = goconfig.SaveConfigFile(cfg, "server.ini")
-		if err != nil {
-			log.Println("配置文件保存失败:", err)
-		}
-	}
-
-	// 读取公私钥
-	cer, err := tls.LoadX509KeyPair("cert.pem", "key.pem")
-	if err != nil {
-		log.Println(err)
+		fmt.Println("Load config failed:", err)
 		return
 	}
 
-	// 监听端口
-	ln, err := tls.Listen("tcp", ":"+port, &tls.Config{
-		Certificates: []tls.Certificate{cer},
+	cert, err := tls.LoadX509KeyPair(etcDir+"cert.pem", etcDir+"key.pem")
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	ln, err := tls.Listen("tcp", ":"+cfg.String("port", "8080"), &tls.Config{
+		Certificates: []tls.Certificate{cert},
 	})
 	if err != nil {
-		log.Println(err)
+		fmt.Println(err)
 		return
 	}
 	defer ln.Close()
 
 	s := &serve{
-		key:     key,
+		key:     cfg.String("key", "helloworld~"),
 		clients: make(map[string]uint),
 	}
-
-	// 加载完成后输出配置信息
-	log.Println("|>>>>>>>>>>>>>>>|<<<<<<<<<<<<<<<|")
-	log.Println("程序版本:" + version)
-	log.Println("监听端口:" + port)
-	log.Println("Key:" + key)
-	log.Println("|>>>>>>>>>>>>>>>|<<<<<<<<<<<<<<<|")
 
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
-			log.Println(err)
+			fmt.Println(err)
 			continue
 		}
 		go s.handleConnection(conn)
@@ -108,58 +81,47 @@ type serve struct {
 }
 
 func (s *serve) handleConnection(conn net.Conn) {
-	log.Println("[+]", conn.RemoteAddr())
+	fmt.Println("[+]", conn.RemoteAddr())
 
 	var msg Message
 
-	// 读取客户端发送数据
+	// read client data
 	buf := make([]byte, 1024)
 	n, err := conn.Read(buf)
 	if err != nil {
-		log.Println(n, err)
+		fmt.Println(n, err)
 		conn.Close()
 		return
 	}
 
-	// 对数据解码
-	err = decode(buf[:n], &msg)
+	// decode
+	err = gob.NewDecoder(bytes.NewBuffer(buf[:n])).Decode(&msg)
 	if err != nil {
-		log.Println(err)
+		fmt.Println(err)
 		conn.Close()
 		return
 	}
+
 	switch msg.Type {
 	case login:
-		// 接受到登录请求
-		// 验证key
 		if msg.Value["key"] == s.key {
-			log.Println("新的客户端加入:", conn.RemoteAddr().String())
-			//验证成功，发送成功信息
+			fmt.Println("New Client:", conn.RemoteAddr().String())
 			isOK(conn)
 
-			// 将客户端IP地址添加进客户端列表
-			// value为此IP当前在线客户端数量
 			s.clients[getIP(conn.RemoteAddr().String())]++
 
 			defer conn.Close()
 
-			// 接收心跳包
 			for {
-				// 设置接收心跳包超时时间
 				conn.SetDeadline(time.Now().Add(time.Second * 65))
 				buf := make([]byte, 1)
 				_, err = conn.Read(buf)
 				if err != nil {
-					// 心跳包接收失败
-					// 再次尝试接收
 					conn.SetDeadline(time.Now().Add(time.Second * 10))
 					_, err = conn.Read(buf)
 					if err != nil {
-						// 客户端断开链接
-						log.Println("客户端断开链接:", err)
-						// 减少一个客户端
+						fmt.Println("Client offline:", err)
 						s.clients[getIP(conn.RemoteAddr().String())]--
-						// 如果这个IP全部客户端都已下线，则删除客户端IP记录
 						if s.clients[getIP(conn.RemoteAddr().String())] == 0 {
 							delete(s.clients, getIP(conn.RemoteAddr().String()))
 						}
@@ -169,49 +131,47 @@ func (s *serve) handleConnection(conn net.Conn) {
 				isOK(conn)
 			}
 		} else {
-			// 客户端验证失败，输出key并返回失败信息
-			log.Println(conn.RemoteAddr(), "验证失败，对方所使用的key:", msg.Value["key"])
+			fmt.Println(conn.RemoteAddr(), "incorrect key:", msg.Value["key"])
 			isntOK(conn)
 			return
 		}
+	case pacscript:
+		conn.Write([]byte("proxy.pac"))
+
 	case connection:
-		// 验证客户端是否存在
 		err := s.clientOnClientsList(conn)
 		if err != nil {
-			log.Println(err)
+			fmt.Println(err)
 			return
 		}
-		// 输出信息
-		log.Println(conn.RemoteAddr(), "<="+msg.Value["reqtype"]+"=>", msg.Value["url"], "[+]")
+		fmt.Println(conn.RemoteAddr(), "<="+msg.Value["reqtype"]+"=>", msg.Value["url"], "[+]")
 
-		// connect
+		// dial
 		pconn, err := net.Dial(msg.Value["reqtype"], msg.Value["url"])
 		if err != nil {
-			log.Println(err)
-			log.Println(conn.RemoteAddr(), "=="+msg.Value["reqtype"]+"=>", msg.Value["url"], "[×]")
-			log.Println(conn.RemoteAddr(), "<="+msg.Value["reqtype"]+"==", msg.Value["url"], "[×]")
-			// 给客户端返回错误信息
+			fmt.Println(err)
+			fmt.Println(conn.RemoteAddr(), "=="+msg.Value["reqtype"]+"=>", msg.Value["url"], "[×]")
+			fmt.Println(conn.RemoteAddr(), "<="+msg.Value["reqtype"]+"==", msg.Value["url"], "[×]")
 			conn.Write([]byte{3})
 			conn.Close()
 			return
 		}
 		conn.Write([]byte{0})
 
-		// 两个conn互相传输信息
 		go func() {
 			io.Copy(conn, pconn)
 			conn.Close()
 			pconn.Close()
-			log.Println(conn.RemoteAddr(), "=="+msg.Value["reqtype"]+"=>", msg.Value["url"], "[√]")
+			fmt.Println(conn.RemoteAddr(), "=="+msg.Value["reqtype"]+"=>", msg.Value["url"], "[√]")
 		}()
 		go func() {
 			io.Copy(pconn, conn)
 			pconn.Close()
 			conn.Close()
-			log.Println(conn.RemoteAddr(), "<="+msg.Value["reqtype"]+"==", msg.Value["url"], "[√]")
+			fmt.Println(conn.RemoteAddr(), "<="+msg.Value["reqtype"]+"==", msg.Value["url"], "[√]")
 		}()
 	default:
-		log.Println("未知请求类型:", msg.Type)
+		fmt.Println("Unknow requert type:", msg.Type)
 	}
 }
 
@@ -222,45 +182,30 @@ func getIP(ip string) string {
 	return ip
 }
 
-// 用于验证客户端是否存在
 func (s *serve) clientOnClientsList(conn net.Conn) error {
 	_, ok := s.clients[getIP(conn.RemoteAddr().String())]
 	if !ok {
-		// 客户端不存在，返回错误信息并且关闭链接
-		// 输出非法连接者IP
 		isntOK(conn)
-		return errors.New("非法连接:" + conn.RemoteAddr().String())
+		return errors.New("Illegal connection:" + conn.RemoteAddr().String())
 	}
-	// 客户端存在，返回成功信息
 	isOK(conn)
 	return nil
 }
 
 func isOK(conn net.Conn) {
-	//写入成功信息
 	_, err := conn.Write([]byte{0})
 	if err != nil {
-		//写入成功信息失败，输出错误然后关闭链接
-		log.Println(err)
+		fmt.Println(err)
 		conn.Close()
 	}
 }
 
 func isntOK(conn net.Conn) {
-	//写入失败信息并且关闭链接
 	_, err := conn.Write([]byte{1})
 	if err != nil {
-		//写入失败信息失败，输出错误（反正都会关闭链接）
-		log.Println(err)
+		fmt.Println(err)
 	}
 	conn.Close()
-}
-
-// 数据解码
-func decode(data []byte, to interface{}) error {
-	buf := bytes.NewBuffer(data)
-	dec := gob.NewDecoder(buf)
-	return dec.Decode(to)
 }
 
 type Message struct {
