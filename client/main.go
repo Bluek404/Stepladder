@@ -31,7 +31,7 @@ import (
 	"time"
 )
 
-const VERSION = "2.0.0"
+const VERSION = "2.0.1"
 
 const (
 	verSocks5 = 0x05
@@ -46,8 +46,6 @@ const (
 )
 
 func main() {
-	log.SetFlags(log.Lshortfile)
-
 	// 读取证书文件
 	rootPEM, err := ioutil.ReadFile("cert.pem")
 	if err != nil {

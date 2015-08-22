@@ -28,13 +28,11 @@ import (
 	"time"
 )
 
-const VERSION = "2.0.0"
+const VERSION = "2.0.1"
 
 var r = rand.New(rand.NewSource(time.Now().UnixNano()))
 
 func main() {
-	log.SetFlags(log.Lshortfile)
-
 	// 读取配置文件
 	cfg, err := goconfig.LoadConfigFile("server.ini")
 	if err != nil {
