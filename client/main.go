@@ -21,7 +21,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/binary"
-	"encoding/gob"
 	"errors"
 	"github.com/Unknwon/goconfig"
 	"io"
@@ -32,9 +31,9 @@ import (
 	"time"
 )
 
-const (
-	version = "1.0.1"
+const VERSION = "2.0.0"
 
+const (
 	verSocks5 = 0x05
 
 	atypIPv4Address = 0x01
@@ -45,23 +44,10 @@ const (
 	reqtypeBIND = 0x02
 	reqtypeUDP  = 0x03
 )
-const (
-	login = iota
-	connection
-)
-
-var (
-	// 用于判断是否正在重新登录中
-	reLogin bool
-
-	// 统计发送心跳包线程的数量
-	// 采用统计数量而不是bool判断是否存在的原因是
-	// 客户端与服务器有可能短时间内重复多次链接+断开导致有多个线程未结束
-	// 用统计数量的话就可以挨个结束了
-	heartbeatGoroutine int
-)
 
 func main() {
+	log.SetFlags(log.Lshortfile)
+
 	// 读取证书文件
 	rootPEM, err := ioutil.ReadFile("cert.pem")
 	if err != nil {
@@ -109,7 +95,7 @@ func main() {
 	defer ln.Close()
 
 	log.Println("|>>>>>>>>>>>>>>>|<<<<<<<<<<<<<<<|")
-	log.Println("程序版本:" + version)
+	log.Println("程序版本:" + VERSION)
 	log.Println("代理端口:" + port)
 	log.Println("Key:" + key)
 	log.Println("服务器地址:" + serverHost + ":" + serverPort)
@@ -125,7 +111,7 @@ func main() {
 	}
 
 	// 登录
-	if err = s.handshake(); err != nil {
+	if err = s.updateSession(); err != nil {
 		log.Println("与服务器链接失败:", err)
 		return
 	}
@@ -141,113 +127,95 @@ func main() {
 	}
 }
 
-func encode(data interface{}) ([]byte, error) {
-	buf := bytes.NewBuffer(nil)
-	enc := gob.NewEncoder(buf)
-	err := enc.Encode(data)
-	if err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
-}
-
 type serve struct {
-	serverHost string
-	serverPort string
-	key        string
-	conf       *tls.Config
+	serverHost        string
+	serverPort        string
+	key               string
+	session           []byte
+	nextUpdateTime    uint16
+	updateSessionLock bool
+	conf              *tls.Config
 }
 
-func (s *serve) handshake() error {
-	// 发送key登录
-	pconn, ok, err := s.send(&Message{
-		Type:  login,
-		Value: map[string]string{"key": s.key},
-	})
+func (s *serve) updateSessionLoop() {
+	for {
+		time.Sleep(time.Second * time.Duration(s.nextUpdateTime))
+		err := s.updateSession()
+		if err != nil {
+			log.Println(err)
+		}
+	}
+}
+
+func (s *serve) updateSession() error {
+	if s.updateSessionLock {
+		return nil
+	}
+	s.updateSessionLock = true
+	/*
+		+------+---------+----------+
+		| TYPE | KEY LEN | KEY      |
+		+------+---------+----------+
+		| 1    | 2       | Variable |
+		+------+---------+----------+
+
+		- TYPE: 请求类型。0为session请求，1为代理请求
+		- KEY LEN: KEY的长度，使用大端字节序，uint16
+		- KEY: 身份验证用的KEY。字符串
+	*/
+	buf := bytes.NewBuffer([]byte{0})
+	err := binary.Write(buf, binary.BigEndian, uint16(len(s.key)))
+	if err != nil {
+		return err
+	}
+	_, err = buf.WriteString(s.key)
 	if err != nil {
 		return err
 	}
 
-	// 登录失败
-	if !ok {
-		return errors.New("与服务器验证失败，请检查key是否正确")
+	conn, err := tls.Dial("tcp", s.serverHost+":"+s.serverPort, s.conf)
+	if err != nil {
+		return err
 	}
-	// 发送心跳包
-	// 当发送错误时说明链接已断开
-	// 会自动重新登录
-	// 如果检测到其他心跳包线程
-	// 说明已经有接替，结束本线程
-	go func() {
-		heartbeatGoroutine++
-		defer func() {
-			heartbeatGoroutine--
-		}()
+	defer conn.Close()
 
-		for {
-			// 心跳包发送间隔
-			time.Sleep(time.Second * 60)
-			_, err := pconn.Write([]byte{0})
-			if err != nil {
-				// 心跳包发送失败
-				if heartbeatGoroutine > 1 {
-					// 发送心跳包的线程大于1
-					// 已经有新的心跳包线程
-					// 结束本线程
-					return
-				} else {
-					// 再次尝试发送
-					_, err := pconn.Write([]byte{0})
-					if err != nil {
-						// 与服务器断开链接
-						pconn.Close()
-						log.Println("与服务端断开链接:", err)
-						// 重新登录
-						s.reLogin()
-						return
-					}
-				}
-			}
-		}
-	}()
+	request := buf.Bytes()
+	_, err = conn.Write(request)
+	if err != nil {
+		return err
+	}
+
+	/*
+		+------+---------+-----+
+		| CODE | SESSION | NPT |
+		+------+---------+-----+
+		| 1    | 64      | 2   |
+		+------+---------+-----+
+
+		- CODE: 状态码。0为成功，1为KEY验证失败
+		- SESSION: 代理请求时使用的session。随机的64位字节
+		- NPT: 多少秒后更新session，使用大端字节序，uint16
+	*/
+	buffer := make([]byte, 65)
+	n, err := conn.Read(buffer)
+	if err != nil {
+		return err
+	}
+	if n != 65 {
+		return errors.New("")
+	}
+	if buffer[0] != 0 {
+		return errors.New("KEY 验证失败")
+	}
+
+	s.session = buffer[1:]
+	err = binary.Read(conn, binary.BigEndian, &s.nextUpdateTime)
+	if buffer[0] != 0 {
+		return err
+	}
+
+	s.updateSessionLock = false
 	return nil
-}
-
-// 向服务器发送信息，返回信息为 建立的链接+是否操作成功+错误
-func (s *serve) send(handshake *Message) (net.Conn, bool, error) {
-	// 建立链接
-	pconn, err := tls.Dial("tcp", s.serverHost+":"+s.serverPort, s.conf)
-	if err != nil {
-		return nil, false, err
-	}
-
-	// 编码
-	enc, err := encode(handshake)
-	if err != nil {
-		pconn.Close()
-		return nil, false, err
-	}
-
-	// 发送信息
-	_, err = pconn.Write(enc)
-	if err != nil {
-		pconn.Close()
-		return nil, false, err
-	}
-
-	// 读取服务端返回信息
-	buf := make([]byte, 1)
-	_, err = pconn.Read(buf)
-	if err != nil {
-		pconn.Close()
-		return nil, false, err
-	}
-
-	// 检查服务端是否返回操作成功
-	if buf[0] != 0 {
-		return pconn, false, nil
-	}
-
-	return pconn, true, nil
 }
 
 // 处理浏览器发出的请求
@@ -264,6 +232,7 @@ func (s *serve) handleConnection(conn net.Conn) {
 	}
 	if buf[0] != verSocks5 {
 		log.Println("使用的socks版本为", buf[0], "，需要为 5")
+		conn.Write([]byte{5, 0})
 		return
 	}
 
@@ -343,39 +312,88 @@ func (s *serve) handleConnection(conn net.Conn) {
 		conn.Close()
 		return
 	}
-	host += ":" + strconv.Itoa(int(port))
 
-	log.Println(conn.RemoteAddr(), "<="+reqType+"=>", host, "[+]")
+	log.Println(conn.RemoteAddr(), "<="+reqType+"=>", host+":"+strconv.Itoa(int(port)), "[+]")
 
 	// 与服务端建立链接
-	pconn, ok, err := s.send(&Message{
-		Type:  connection,
-		Value: map[string]string{"reqtype": reqType, "url": host},
-	})
+	pconn, err := tls.Dial("tcp", s.serverHost+":"+s.serverPort, s.conf)
 	if err != nil {
 		log.Println("连接服务端失败:", err)
 		conn.Close()
 		return
 	}
+	/*
+		+------+---------+-----+----------+----------+------+
+		| TYPE | SESSION | CMD | HOST LEN | HOST     | PORT |
+		+------+---------+-----+----------+----------+------+
+		| 1    | 64      | 1   | 1        | Variable | 2    |
+		+------+---------+-----+----------+----------+------+
 
-	// 检查服务端是否返回成功
-	if !ok {
-		log.Println("服务端验证失败")
+		- TYPE: 请求类型。0为session请求，1为代理请求
+		- SESSION: 身份验证用session，随机的64位字节
+		- CMD: 协议类型。0为TCP，1为UDP
+		- HOST LEN: 目标地址的长度
+		- HOST: 目标地址，IPv[4|6]或者域名
+		- PORT: 目标端口，使用大端字节序
+	*/
+	buffer := bytes.NewBuffer([]byte{1})
+	buffer.Write(s.session)
+	var cmd byte
+	if reqType == "tcp" {
+		cmd = 0
+	} else {
+		cmd = 1
+	}
+	buffer.WriteByte(cmd)
+	byteHost := []byte(host)
+	buffer.WriteByte(byte(len(byteHost)))
+	buffer.Write(byteHost)
+	buffer.Write(make([]byte, 2))
+	request := buffer.Bytes()
+	binary.BigEndian.PutUint16(request[len(request)-2:], port)
+	_, err = pconn.Write(buffer.Bytes())
+	if err != nil {
+		log.Println(err)
 		pconn.Close()
 		conn.Close()
-		// 重新登录
-		s.reLogin()
 		return
 	}
 
+	/*
+		+------+
+		| CODE |
+		+------+
+		| 1    |
+		+------+
+
+		- CODE: 状态码。0为成功，1为连接目标失败，2为session无效，3-5为socks5相应状态码
+	*/
 	// 读取服务端返回状态
 	buf = make([]byte, 1)
 	_, err = pconn.Read(buf)
 	if err != nil {
 		log.Println(err)
+		pconn.Close()
 		conn.Close()
 		return
 	}
+
+	// 检查session是否验证成功
+	if buf[0] == 2 {
+		log.Println("服务端验证失败")
+		pconn.Close()
+		conn.Close()
+		// 重新登录
+		s.updateSession()
+		return
+	}
+
+	/*
+		SOCKS5状态码:
+		3: Network unreachable
+		4: Host unreachable
+		5: Connection refused
+	*/
 	code := buf[0]
 
 	// 回应消息
@@ -407,25 +425,4 @@ func (s *serve) handleConnection(conn net.Conn) {
 		pconn.Close()
 		log.Println(conn.RemoteAddr(), "<="+reqType+"==", host, "[√]")
 	}()
-}
-
-// 重新登录
-func (s *serve) reLogin() {
-	// 检查是否已经在重新登录中
-	if !reLogin {
-		reLogin = true
-		log.Println("正在重新登录")
-		if err := s.handshake(); err != nil {
-			log.Println("重新登录失败:", err)
-			reLogin = false
-			return
-		}
-		log.Println("重新登录成功,服务器连接完毕")
-		reLogin = false
-	}
-}
-
-type Message struct {
-	Type  int
-	Value map[string]string
 }
