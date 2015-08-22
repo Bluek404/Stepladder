@@ -103,3 +103,8 @@ Stepladder   [![continue-integration](https://img.shields.io/jenkins/s/https/ci.
 设置浏览器的socks5代理为`127.0.0.1:7071`就可以啦（后面的端口依据你上面修改的配置而定）
 
 如果还有什么不会的话可以在[这里](https://github.com/Bluek404/Stepladder/issues)提交问题，或者发送邮件到<i@bluek404.net>
+
+协议
+----
+
+[MIT](LICENSE)
