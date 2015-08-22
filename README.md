@@ -1,13 +1,19 @@
 Stepladder   [![continue-integration](https://img.shields.io/jenkins/s/https/ci.qaq.gd/Stepladder.svg?style=flat-square)](https://ci.qaq.gd/job/Stepladder/)
 ==========
 
->梯子是一种用于翻墙的工具
+> 折梯，是土木工程用品，协助工作人员在工地上高落低，有如活动楼梯。折梯用时打开，用完折合起来，方便转移。
+>
+> 在从前，战争时代的攻城防守战，折梯也大派用场，夸越敌方的城墙。 而守护的一方，必须尽快把靠近的折梯推倒，免得对方沿梯爬上来。
+>
+> —— 维基百科
 
-数据使用Golang专有的gob编码传输，并用TLS协议加密
+使用TLS协议加密
 
 客户端使用socks5协议连接
 
-可直接将需代理的域名传输到服务器，而不是IP。有效避免DNS污染
+支持直接代理域名
+
+支持UDP
 
 下载
 ----
