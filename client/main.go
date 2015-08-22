@@ -22,16 +22,17 @@ import (
 	"crypto/x509"
 	"encoding/binary"
 	"errors"
-	"github.com/Unknwon/goconfig"
 	"io"
 	"io/ioutil"
 	"log"
 	"net"
 	"strconv"
 	"time"
+
+	"github.com/Unknwon/goconfig"
 )
 
-const VERSION = "2.0.1"
+const VERSION = "2.0.2"
 
 const (
 	verSocks5 = 0x05
@@ -114,6 +115,7 @@ func main() {
 		return
 	}
 	log.Println("登录成功,服务器连接完毕")
+	go s.updateSessionLoop()
 
 	for {
 		conn, err := ln.Accept()
@@ -194,24 +196,23 @@ func (s *serve) updateSession() error {
 		- SESSION: 代理请求时使用的session。随机的64位字节
 		- NPT: 多少秒后更新session，使用大端字节序，uint16
 	*/
-	buffer := make([]byte, 65)
+	buffer := make([]byte, 67)
 	n, err := conn.Read(buffer)
 	if err != nil {
 		return err
 	}
-	if n != 65 {
-		return errors.New("")
+	if n != 67 {
+		return errors.New("服务端应答长度非法")
 	}
 	if buffer[0] != 0 {
 		return errors.New("KEY 验证失败")
 	}
 
-	s.session = buffer[1:]
-	err = binary.Read(conn, binary.BigEndian, &s.nextUpdateTime)
-	if buffer[0] != 0 {
-		return err
-	}
-
+	s.session = buffer[1:65]
+	s.nextUpdateTime = binary.BigEndian.Uint16(buffer[65:])
+	log.Println("Session 更新完成，下次更新时间:",
+		time.Unix(time.Now().Unix()+int64(s.nextUpdateTime), 0).
+			Format("2006/01/02 15:04:05"))
 	s.updateSessionLock = false
 	return nil
 }

@@ -17,18 +17,20 @@
 package main
 
 import (
+	"bytes"
 	"crypto/tls"
 	"encoding/binary"
-	"github.com/Unknwon/goconfig"
 	"io"
 	"log"
 	"math/rand"
 	"net"
 	"strconv"
 	"time"
+
+	"github.com/Unknwon/goconfig"
 )
 
-const VERSION = "2.0.1"
+const VERSION = "2.0.2"
 
 var r = rand.New(rand.NewSource(time.Now().UnixNano()))
 
@@ -117,16 +119,17 @@ func newSession() (result [64]byte) {
 type serve struct {
 	key            string
 	session        [64]byte
-	nextUpdateTime uint16
+	nextUpdateTime int64
 	clients        map[string]uint
 	keepit         map[string]chan bool
 }
 
 func (s *serve) genSession() {
 	for {
-		s.nextUpdateTime = uint16(r.Int31n(5+1) * 60)
+		second := r.Int63n(5+1) * 60
+		s.nextUpdateTime = time.Now().Unix() + second
 		s.session = newSession()
-		time.Sleep(time.Second * time.Duration(s.nextUpdateTime))
+		time.Sleep(time.Second * time.Duration(second))
 	}
 }
 
@@ -169,11 +172,11 @@ func (s *serve) handleConnection(conn net.Conn) {
 
 	switch buf[0] {
 	case 0:
+		defer conn.Close()
 		buf = make([]byte, 2)
 		n, err = conn.Read(buf)
 		if err != nil {
 			log.Println(err)
-			conn.Close()
 			return
 		}
 		length := binary.BigEndian.Uint16(buf)
@@ -181,12 +184,10 @@ func (s *serve) handleConnection(conn net.Conn) {
 		n, err = conn.Read(buf)
 		if err != nil {
 			log.Println(err)
-			conn.Close()
 			return
 		}
 		if n != int(length) {
 			log.Println("错误的KEY长度")
-			conn.Close()
 			return
 		}
 
@@ -205,19 +206,16 @@ func (s *serve) handleConnection(conn net.Conn) {
 		if key != s.key {
 			log.Println("错误的KEY:", key)
 			conn.Write([]byte{0})
-			conn.Close()
 			return
 		}
-		_, err = conn.Write(append([]byte{0}, s.session[:]...))
+		buffer := bytes.NewBuffer([]byte{0})
+		buffer.Write(s.session[:])
+		buffer.Write(make([]byte, 2))
+		response := buffer.Bytes()
+		binary.BigEndian.PutUint16(response[len(response)-2:], uint16(s.nextUpdateTime-time.Now().Unix()))
+		_, err = conn.Write(response)
 		if err != nil {
 			log.Println(err)
-			conn.Close()
-			return
-		}
-		err = binary.Write(conn, binary.BigEndian, s.nextUpdateTime)
-		if err != nil {
-			log.Println(err)
-			conn.Close()
 			return
 		}
 	case 1:
