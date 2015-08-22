@@ -40,7 +40,7 @@ import (
 	"github.com/Unknwon/goconfig"
 )
 
-const VERSION = "2.0.2"
+const VERSION = "2.0.3"
 
 const (
 	verSocks5 = 0x05
@@ -160,6 +160,8 @@ func (s *serve) updateSession() error {
 		return nil
 	}
 	s.updateSessionLock = true
+	defer func() { s.updateSessionLock = false }()
+
 	/*
 		+------+---------+----------+
 		| TYPE | KEY LEN | KEY      |
@@ -221,7 +223,6 @@ func (s *serve) updateSession() error {
 	log.Println("Session 更新完成，下次更新时间:",
 		time.Unix(time.Now().Unix()+int64(s.nextUpdateTime), 0).
 			Format("2006/01/02 15:04:05"))
-	s.updateSessionLock = false
 	return nil
 }
 
@@ -373,7 +374,7 @@ func (s *serve) handleConnection(conn net.Conn) {
 		| 1    |
 		+------+
 
-		- CODE: 状态码。0为成功，1为连接目标失败，2为session无效，3-5为socks5相应状态码
+		- CODE: 状态码。0为成功，2为session无效，3-5为socks5相应状态码
 	*/
 	// 读取服务端返回状态
 	buf = make([]byte, 1)

@@ -38,7 +38,7 @@ import (
 	"github.com/Unknwon/goconfig"
 )
 
-const VERSION = "2.0.2"
+const VERSION = "2.0.3"
 
 var r = rand.New(rand.NewSource(time.Now().UnixNano()))
 
@@ -220,7 +220,8 @@ func (s *serve) handleConnection(conn net.Conn) {
 		buffer.Write(s.session[:])
 		buffer.Write(make([]byte, 2))
 		response := buffer.Bytes()
-		binary.BigEndian.PutUint16(response[len(response)-2:], uint16(s.nextUpdateTime-time.Now().Unix()))
+		binary.BigEndian.PutUint16(response[len(response)-2:],
+			uint16(s.nextUpdateTime-time.Now().Unix()))
 		_, err = conn.Write(response)
 		if err != nil {
 			log.Println(err)
@@ -248,7 +249,7 @@ func (s *serve) handleConnection(conn net.Conn) {
 			| 1    |
 			+------+
 
-			- CODE: 状态码。0为成功，1为连接目标失败，2为session无效，3-5为socks5相应状态码
+			- CODE: 状态码。0为成功，2为session无效，3-5为socks5相应状态码
 		*/
 		if to64ByteArray(buf) != s.session {
 			log.Println("session无效:", buf)
