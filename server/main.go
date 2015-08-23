@@ -38,7 +38,7 @@ import (
 	"github.com/Unknwon/goconfig"
 )
 
-const VERSION = "2.0.3"
+const VERSION = "2.1.0"
 
 var r = rand.New(rand.NewSource(time.Now().UnixNano()))
 
@@ -122,6 +122,24 @@ func newSession() (result [64]byte) {
 		result[i] = byte(r.Int31n(256))
 	}
 	return result
+}
+
+func timeoutLoop(t time.Duration, do func(), alive, exit chan bool) {
+	select {
+	case <-alive:
+		timeoutLoop(t, do, alive, exit)
+	case <-exit:
+	case <-time.After(t):
+		do()
+	}
+}
+
+func newTimeouter(t time.Duration, do func()) (chan<- bool, chan<- bool) {
+	alive := make(chan bool, 1)
+	exit := make(chan bool, 1)
+	go timeoutLoop(t, do, alive, exit)
+
+	return alive, exit
 }
 
 type serve struct {
@@ -372,6 +390,111 @@ func (s *serve) proxyUDP(conn net.Conn) {
 		conn.Close()
 		return
 	}
+	log.Println(conn.RemoteAddr(), "<=udp=>", "ALL", "[+]")
 
-	// TODO: 两个LOOP交换 conn 与 pconn 的数据
+	alive, exit := newTimeouter(time.Minute*1, func() {
+		pconn.Close()
+		conn.Close()
+	})
+
+	go func() {
+		for {
+			/*
+				+----------+----------+------+----------+----------+
+				| HOST LEN | HOST     | PORT | DATA LEN | DATA     |
+				+----------+----------+------+----------+----------+
+				| 1        | Variable | 2    | 2        | Variable |
+				+----------+----------+------+----------+----------+
+
+				- HOST LEN: [目标|来源]地址的长度
+				- HOST: [目标|来源]地址，IPv[4|6]或者域名
+				- PORT: [目标|来源]端口，使用大端字节序，uint16
+				- DATA LEN: 原始数据长度，使用大端字节序，uint16
+				- DATA: 原始数据
+			*/
+			buf := make([]byte, 1)
+			_, err := conn.Read(buf)
+			if err != nil {
+				log.Println(err)
+				break
+			}
+			alive <- true
+			hostLen := buf[0]
+			buf = make([]byte, hostLen)
+			_, err = conn.Read(buf)
+			if err != nil {
+				log.Println(err)
+				break
+			}
+			host := string(buf)
+			buf = make([]byte, 2)
+			_, err = conn.Read(buf)
+			if err != nil {
+				log.Println(err)
+				break
+			}
+			port := binary.BigEndian.Uint16(buf)
+			buf = make([]byte, 4096)
+			n, err := conn.Read(buf)
+			if err != nil {
+				log.Println(err)
+				break
+			}
+
+			addr, err := net.ResolveUDPAddr("udp", host+":"+strconv.Itoa(int(port)))
+			if err != nil {
+				log.Println(err)
+				break
+			}
+			pconn.WriteToUDP(buf[:n], addr)
+		}
+		log.Println(conn.RemoteAddr(), "==udp=>", "ALL", "[√]")
+		pconn.Close()
+		conn.Close()
+		exit <- true
+	}()
+
+	go func() {
+		for {
+			buf := make([]byte, 4096)
+			n, addr, err := pconn.ReadFromUDP(buf)
+			if err != nil {
+				log.Println(err)
+				break
+			}
+			alive <- true
+
+			/*
+				+----------+----------+------+----------+----------+
+				| HOST LEN | HOST     | PORT | DATA LEN | DATA     |
+				+----------+----------+------+----------+----------+
+				| 1        | Variable | 2    | 2        | Variable |
+				+----------+----------+------+----------+----------+
+
+				- HOST LEN: [目标|来源]地址的长度
+				- HOST: [目标|来源]地址，IPv[4|6]或者域名
+				- PORT: [目标|来源]端口，使用大端字节序，uint16
+				- DATA LEN: 原始数据长度，使用大端字节序，uint16
+				- DATA: 原始数据
+			*/
+			hostBytes := []byte(addr.IP.String())
+			buffer := bytes.NewBuffer([]byte{byte(len(hostBytes))})
+			buffer.Write(hostBytes)
+			b := make([]byte, 4)
+			binary.BigEndian.PutUint16(b[:2], uint16(addr.Port))
+			binary.BigEndian.PutUint16(b[2:], uint16(n))
+			buffer.Write(b)
+			buffer.Write(buf[:n])
+
+			_, err = pconn.Write(buffer.Bytes())
+			if err != nil {
+				log.Println(err)
+				break
+			}
+		}
+		log.Println(conn.RemoteAddr(), "<=udp==", "ALL", "[√]")
+		pconn.Close()
+		conn.Close()
+		exit <- true
+	}()
 }

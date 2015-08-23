@@ -42,7 +42,7 @@ import (
 	"github.com/Unknwon/goconfig"
 )
 
-const VERSION = "2.0.3"
+const VERSION = "2.1.0"
 
 const (
 	verSocks5 = 0x05
@@ -137,6 +137,64 @@ func main() {
 		}
 		go s.handleConnection(conn)
 	}
+}
+
+func readHostAndPort(atype byte, conn net.Conn) (host string, port uint16, err error) {
+	switch atype {
+	case atypIPv4Address:
+		buf := make([]byte, 4)
+		_, err = conn.Read(buf)
+		if err != nil {
+			return "", 0, err
+		}
+		host = net.IP(buf).String()
+	case atypIPv6Address:
+		buf := make([]byte, 16)
+		_, err = conn.Read(buf)
+		if err != nil {
+			return "", 0, err
+		}
+		host = net.IP(buf).String()
+	case atypDomainName:
+		// 读取域名长度
+		buf := make([]byte, 1)
+		_, err = conn.Read(buf)
+		if err != nil {
+			return "", 0, err
+		}
+		// 根据读取到的长度读取域名
+		buf = make([]byte, buf[0])
+		_, err = conn.Read(buf)
+		if err != nil {
+			return "", 0, err
+		}
+		host = string(buf)
+	}
+	// 读取端口
+	err = binary.Read(io.Reader(conn), binary.BigEndian, &port)
+	if err != nil {
+		return "", 0, err
+	}
+
+	return host, port, nil
+}
+
+func timeoutLoop(t time.Duration, do func(), alive, exit chan bool) {
+	select {
+	case <-alive:
+		timeoutLoop(t, do, alive, exit)
+	case <-exit:
+	case <-time.After(t):
+		do()
+	}
+}
+
+func newTimeouter(t time.Duration, do func()) (chan<- bool, chan<- bool) {
+	alive := make(chan bool, 1)
+	exit := make(chan bool, 1)
+	go timeoutLoop(t, do, alive, exit)
+
+	return alive, exit
 }
 
 type serve struct {
@@ -265,70 +323,27 @@ func (s *serve) handleConnection(conn net.Conn) {
 	}
 
 	// 判断协议
-	var reqtype string
+	var reqtype uint16
 	switch buf[1] {
 	case reqtypeTCP:
-		reqtype = "tcp"
+		reqtype = reqtypeTCP
 	case reqtypeBIND:
 		log.Println("暂不支持 BIND 命令（估计以后也不会支持）")
 		conn.Write([]byte{5, 2, 0, 1, 0, 0, 0, 0, 0, 0})
 		conn.Close()
 		return
 	case reqtypeUDP:
-		reqtype = "udp"
+		reqtype = reqtypeUDP
 	}
 
-	// 读取目标host
-	var host string
-	switch buf[3] {
-	case atypIPv4Address:
-		buf = make([]byte, 4)
-		_, err = conn.Read(buf)
-		if err != nil {
-			log.Println(err)
-			conn.Close()
-			return
-		}
-		host = net.IP(buf).String()
-	case atypIPv6Address:
-		buf = make([]byte, 16)
-		_, err = conn.Read(buf)
-		if err != nil {
-			log.Println(err)
-			conn.Close()
-			return
-		}
-		host = net.IP(buf).String()
-	case atypDomainName:
-		// 读取域名长度
-		buf = make([]byte, 1)
-		_, err = conn.Read(buf)
-		if err != nil {
-			log.Println(err)
-			conn.Close()
-			return
-		}
-		// 根据读取到的长度读取域名
-		buf = make([]byte, buf[0])
-		_, err = conn.Read(buf)
-		if err != nil {
-			log.Println(err)
-			conn.Close()
-			return
-		}
-		host = string(buf)
-	}
-	// 读取端口
-	var port uint16
-	err = binary.Read(io.Reader(conn), binary.BigEndian, &port)
+	host, port, err := readHostAndPort(buf[3], conn)
 	if err != nil {
 		log.Println(err)
 		conn.Close()
 		return
 	}
 
-	log.Println(conn.RemoteAddr(), "<="+reqtype+"=>", host+":"+strconv.Itoa(int(port)), "[+]")
-	if reqtype == "tcp" {
+	if reqtype == reqtypeTCP {
 		s.proxyTCP(conn, host, port)
 	} else {
 		s.proxyUDP(conn, host, port)
@@ -336,6 +351,7 @@ func (s *serve) handleConnection(conn net.Conn) {
 }
 
 func (s *serve) proxyTCP(conn net.Conn, host string, port uint16) {
+	log.Println(conn.RemoteAddr(), "<=tcp=>", host+":"+strconv.Itoa(int(port)), "[+]")
 	// 与服务端建立链接
 	pconn, err := tls.Dial("tcp", s.serverHost+":"+s.serverPort, s.conf)
 	if err != nil {
@@ -446,6 +462,7 @@ func (s *serve) proxyTCP(conn net.Conn, host string, port uint16) {
 }
 
 func (s *serve) proxyUDP(conn net.Conn, host string, port uint16) {
+	log.Println(conn.RemoteAddr(), "<=udp=>", "ALL", "[+]")
 	// 与服务端建立链接
 	pconn, err := tls.Dial("tcp", s.serverHost+":"+s.serverPort, s.conf)
 	if err != nil {
@@ -516,8 +533,7 @@ func (s *serve) proxyUDP(conn net.Conn, host string, port uint16) {
 
 	// 检查状态码
 	if code != 0 {
-		log.Println(conn.RemoteAddr(), "==udp=>", host, "[×]")
-		log.Println(conn.RemoteAddr(), "<=udp==", host, "[×]")
+		log.Println(conn.RemoteAddr(), "<=udp=>", "ALL", "[×]")
 		conn.Write([]byte{5, code, 0, 1, 0, 0, 0, 0, 0, 0})
 		conn.Close()
 		pconn.Close()
@@ -552,7 +568,7 @@ func (s *serve) proxyUDP(conn net.Conn, host string, port uint16) {
 	buffer.Write(make([]byte, 2))
 	response := buffer.Bytes()
 	strPort := uconn.LocalAddr().String()
-	strPort = strPort[strings.LastIndex(lAddr, ":")+1:]
+	strPort = strPort[strings.LastIndex(strPort, ":")+1:]
 	lPort, err := strconv.Atoi(strPort)
 	if err != nil {
 		log.Println(err)
@@ -573,5 +589,151 @@ func (s *serve) proxyUDP(conn net.Conn, host string, port uint16) {
 	}
 	conn.Close()
 
-	// TODO: 两个LOOP交换 uconn 与 pconn 的数据
+	rAddr, err := net.ResolveUDPAddr("udp", host+":"+strconv.Itoa(int(port)))
+	if err != nil {
+		log.Println(err)
+		pconn.Close()
+		uconn.Close()
+		return
+	}
+
+	alive, exit := newTimeouter(time.Minute*1, func() {
+		pconn.Close()
+		uconn.Close()
+	})
+
+	go func() {
+		for {
+			buf := make([]byte, 4)
+			_, addr, err := uconn.ReadFromUDP(buf)
+			if err != nil {
+				log.Println(err)
+				break
+			}
+			if buf[3] != 0 || addr != rAddr {
+				continue
+			}
+			alive <- true
+
+			pHost, pPort, err := readHostAndPort(buf[3], conn)
+			if err != nil {
+				log.Println(err)
+				break
+			}
+			buf = make([]byte, 4096)
+			n, _, err := uconn.ReadFromUDP(buf)
+			if err != nil {
+				log.Println(err)
+				break
+			}
+
+			/*
+				+----------+----------+------+----------+----------+
+				| HOST LEN | HOST     | PORT | DATA LEN | DATA     |
+				+----------+----------+------+----------+----------+
+				| 1        | Variable | 2    | 2        | Variable |
+				+----------+----------+------+----------+----------+
+
+				- HOST LEN: [目标|来源]地址的长度
+				- HOST: [目标|来源]地址，IPv[4|6]或者域名
+				- PORT: [目标|来源]端口，使用大端字节序，uint16
+				- DATA LEN: 原始数据长度，使用大端字节序，uint16
+				- DATA: 原始数据
+			*/
+			pHostBytes := []byte(pHost)
+			buffer := bytes.NewBuffer([]byte{byte(len(pHostBytes))})
+			buffer.Write(pHostBytes)
+			b := make([]byte, 4)
+			binary.BigEndian.PutUint16(b[:2], pPort)
+			binary.BigEndian.PutUint16(b[2:], uint16(n))
+			buffer.Write(b)
+			buffer.Write(buf[:n])
+
+			_, err = pconn.Write(buffer.Bytes())
+			if err != nil {
+				log.Println(err)
+				break
+			}
+		}
+		log.Println(conn.RemoteAddr(), "==udp=>", "ALL", "[√]")
+		pconn.Close()
+		uconn.Close()
+		exit <- true
+	}()
+
+	go func() {
+		for {
+			/*
+				+----------+----------+------+----------+----------+
+				| HOST LEN | HOST     | PORT | DATA LEN | DATA     |
+				+----------+----------+------+----------+----------+
+				| 1        | Variable | 2    | 2        | Variable |
+				+----------+----------+------+----------+----------+
+
+				- HOST LEN: [目标|来源]地址的长度
+				- HOST: [目标|来源]地址，IPv[4|6]或者域名
+				- PORT: [目标|来源]端口，使用大端字节序，uint16
+				- DATA LEN: 原始数据长度，使用大端字节序，uint16
+				- DATA: 原始数据
+			*/
+			buf := make([]byte, 1)
+			_, err := pconn.Read(buf)
+			if err != nil {
+				log.Println(err)
+				break
+			}
+			alive <- true
+			hostLen := buf[0]
+			buf = make([]byte, hostLen)
+			_, err = pconn.Read(buf)
+			if err != nil {
+				log.Println(err)
+				break
+			}
+			host := string(buf)
+			buf = make([]byte, 2)
+			_, err = pconn.Read(buf)
+			if err != nil {
+				log.Println(err)
+				break
+			}
+			port := buf
+			buf = make([]byte, 4096)
+			n, err := pconn.Read(buf)
+			if err != nil {
+				log.Println(err)
+				break
+			}
+
+			buffer := bytes.NewBuffer([]byte{0, 0, 0})
+			if ipv4Reg.MatchString(host) {
+				buffer.WriteByte(atypIPv4Address)
+				ipv6 := net.ParseIP(host)
+				ipv4 := ipv6[len(ipv6)-4:]
+				buffer.Write(ipv4)
+			} else if strings.ContainsRune(host, ':') {
+				buffer.WriteByte(atypIPv6Address)
+				buffer.Write(net.ParseIP(host))
+			} else {
+				buffer.WriteByte(atypDomainName)
+				byteAddr := []byte(host)
+				buffer.WriteByte(byte(len(byteAddr)))
+				buffer.Write(byteAddr)
+			}
+			buffer.Write(port)
+			b := make([]byte, 2)
+			binary.BigEndian.PutUint16(b, uint16(n))
+			buffer.Write(b)
+			buffer.Write(buf[:n])
+			_, err = uconn.WriteToUDP(buffer.Bytes(), rAddr)
+			if err != nil {
+				log.Println(err)
+				break
+			}
+		}
+		log.Println(conn.RemoteAddr(), "<=udp==", "ALL", "[√]")
+		pconn.Close()
+		uconn.Close()
+		exit <- true
+	}()
 }
