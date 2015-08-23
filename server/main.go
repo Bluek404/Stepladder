@@ -145,7 +145,7 @@ func (s *serve) handleConnection(conn net.Conn) {
 	log.Println("[+]", conn.RemoteAddr())
 
 	/*
-		两种可能的请求:
+		三种可能的请求:
 
 		+------+---------+----------+
 		| TYPE | KEY LEN | KEY      |
@@ -169,6 +169,16 @@ func (s *serve) handleConnection(conn net.Conn) {
 		- HOST LEN: 目标地址的长度
 		- HOST: 目标地址，IPv[4|6]或者域名
 		- PORT: 目标端口，使用大端字节序，uint16
+
+		+------+---------+-----+
+		| TYPE | SESSION | CMD |
+		+------+---------+-----+
+		| 1    | 64      | 1   |
+		+------+---------+-----+
+
+		- TYPE: 请求类型。0为session请求，1为代理请求
+		- SESSION: 身份验证用session，随机的64位字节
+		- CMD: 协议类型。0为TCP，1为UDP
 	*/
 	buf := make([]byte, 1)
 	n, err := conn.Read(buf)
@@ -249,7 +259,7 @@ func (s *serve) handleConnection(conn net.Conn) {
 			| 1    |
 			+------+
 
-			- CODE: 状态码。0为成功，2为session无效，3-5为socks5相应状态码
+			- CODE: 状态码。0为成功，2为session无效，[1|3-5]为socks5相应状态码
 		*/
 		if to64ByteArray(buf) != s.session {
 			log.Println("session无效:", buf)
@@ -265,76 +275,103 @@ func (s *serve) handleConnection(conn net.Conn) {
 			conn.Close()
 			return
 		}
-		var reqtype string
 		if buf[0] == 0 {
-			reqtype = "tcp"
+			s.proxyTCP(conn)
 		} else {
-			reqtype = "udp"
+			s.proxyUDP(conn)
 		}
-		// 读取host长度
-		_, err = conn.Read(buf)
-		if err != nil {
-			log.Println(err)
-			conn.Close()
-			return
-		}
-		hostLen := int(buf[0])
-		// 读取host
-		buf = make([]byte, hostLen)
-		n, err = conn.Read(buf)
-		if err != nil {
-			log.Println(err)
-			conn.Close()
-			return
-		}
-		if n != hostLen {
-			log.Println("host长度错误")
-			conn.Close()
-			return
-		}
-		host := string(buf)
-		// 读取port
-		var port uint16
-		err = binary.Read(conn, binary.BigEndian, &port)
-		if err != nil {
-			log.Println(err)
-			conn.Close()
-			return
-		}
-
-		url := host + ":" + strconv.Itoa(int(port))
-
-		// 输出信息
-		log.Println(conn.RemoteAddr(), "<="+reqtype+"=>", url, "[+]")
-
-		// connect
-		pconn, err := net.Dial(reqtype, url)
-		if err != nil {
-			log.Println(err)
-			log.Println(conn.RemoteAddr(), "=="+reqtype+"=>", url, "[×]")
-			log.Println(conn.RemoteAddr(), "<="+reqtype+"==", url, "[×]")
-			// 给客户端返回错误信息
-			conn.Write([]byte{3})
-			conn.Close()
-			return
-		}
-		conn.Write([]byte{0})
-
-		// 两个conn互相传输信息
-		go func() {
-			io.Copy(conn, pconn)
-			conn.Close()
-			pconn.Close()
-			log.Println(conn.RemoteAddr(), "=="+reqtype+"=>", url, "[√]")
-		}()
-		go func() {
-			io.Copy(pconn, conn)
-			pconn.Close()
-			conn.Close()
-			log.Println(conn.RemoteAddr(), "<="+reqtype+"==", url, "[√]")
-		}()
 	default:
 		log.Println("未知请求类型:", buf[0])
 		conn.Close()
 	}
+}
+
+func (s *serve) proxyTCP(conn net.Conn) {
+	// 读取host长度
+	buf := make([]byte, 1)
+	_, err := conn.Read(buf)
+	if err != nil {
+		log.Println(err)
+		conn.Close()
+		return
+	}
+	hostLen := int(buf[0])
+	// 读取host
+	buf = make([]byte, hostLen)
+	n, err := conn.Read(buf)
+	if err != nil {
+		log.Println(err)
+		conn.Close()
+		return
+	}
+	if n != hostLen {
+		log.Println("host长度错误")
+		conn.Close()
+		return
+	}
+	host := string(buf)
+	// 读取port
+	var port uint16
+	err = binary.Read(conn, binary.BigEndian, &port)
+	if err != nil {
+		log.Println(err)
+		conn.Close()
+		return
+	}
+
+	url := host + ":" + strconv.Itoa(int(port))
+
+	// 输出信息
+	log.Println(conn.RemoteAddr(), "<=tcp=>", url, "[+]")
+
+	// connect
+	pconn, err := net.Dial("tcp", url)
+	if err != nil {
+		log.Println(err)
+		log.Println(conn.RemoteAddr(), "==tcp=>", url, "[×]")
+		log.Println(conn.RemoteAddr(), "<=tcp==", url, "[×]")
+		// 给客户端返回错误信息
+		conn.Write([]byte{3})
+		conn.Close()
+		return
+	}
+	_, err = conn.Write([]byte{0})
+	if err != nil {
+		log.Println(err)
+		conn.Close()
+		return
+	}
+
+	// 两个conn互相传输信息
+	go func() {
+		io.Copy(conn, pconn)
+		conn.Close()
+		pconn.Close()
+		log.Println(conn.RemoteAddr(), "==tcp=>", url, "[√]")
+	}()
+	go func() {
+		io.Copy(pconn, conn)
+		pconn.Close()
+		conn.Close()
+		log.Println(conn.RemoteAddr(), "<=tcp==", url, "[√]")
+	}()
+}
+
+func (s *serve) proxyUDP(conn net.Conn) {
+	pconn, err := net.ListenUDP("udp", nil)
+	if err != nil {
+		log.Println(err)
+		conn.Write([]byte{1})
+		conn.Close()
+		return
+	}
+	_, err = conn.Write([]byte{0})
+	if err != nil {
+		log.Println(err)
+		pconn.Close()
+		conn.Close()
+		return
+	}
+
+	// TODO: 两个LOOP交换 conn 与 pconn 的数据
 }
